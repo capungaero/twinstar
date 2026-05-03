@@ -55,7 +55,6 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
   const query = params?.q?.trim() ?? "";
   const searchResult = query ? await buildAiSearchResponse(query) : null;
   const hasQuery = Boolean(searchResult);
-  const searchPlan = searchResult?.searchPlan ?? null;
   const visibleSales = searchResult?.visibleSales ?? [];
   const visibleStock = searchResult?.visibleStock ?? [];
   const visibleExpired = searchResult?.visibleExpired ?? [];
@@ -70,13 +69,7 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
     <main className="shell">
       <Sidebar />
       <section className="content ai-page">
-        <section className="ai-hero">
-          <span className="eyebrow">Pencarian AI Database POS</span>
-          <h1>Cari data seperti bertanya ke asisten</h1>
-          <p>Masukkan prompt bebas untuk mencari transaksi, cabang, stok, produk expired, pelanggan, atau kategori dari data dummy internal. Gemini membantu menerjemahkan prompt ke kata kunci pencarian.</p>
-        </section>
-
-        <section className="ai-search-panel">
+        <div className="ai-search-shell">
           <form className="ai-search-form" action="/pencarian-ai">
             <Search size={22} />
             <input
@@ -84,7 +77,7 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
               className="ai-search-input"
               defaultValue={query}
               name="q"
-              placeholder="Contoh: tampilkan barang expired C07, penjualan minyak pekanbaru, stok limit elektronik..."
+              placeholder="Tanyakan data penjualan, stok, cabang, atau barang expired..."
               type="search"
             />
             <button className="ai-search-button" type="submit">
@@ -92,112 +85,99 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
               Cari AI
             </button>
           </form>
-          <div className="ai-suggestions">
-            {["penjualan C04", "barang expired minggu ini", "stok limit elektronik", "produk terlaris minyak"].map((sample) => (
-              <Link href={`/pencarian-ai?q=${encodeURIComponent(sample)}`} key={sample}>
-                {sample}
-              </Link>
-            ))}
-          </div>
-        </section>
 
-        <article className="panel ai-results-panel">
-          <div className="ai-answer">
-            <div className="ai-answer__icon">
-              <Bot size={24} />
-            </div>
-            <div>
-              <span>Hasil Pencarian AI</span>
-              <strong>
-                {hasQuery ? (summaryOnly ? `Jawaban ringkas untuk "${query}"` : `${totalResults} hasil ditemukan untuk "${query}"`) : "Masukkan prompt untuk mulai mencari data POS"}
-              </strong>
-              <p>
-                {hasQuery
-                  ? (searchResult?.answerText ?? `Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`)
-                  : "Data tidak ditampilkan sebelum ada prompt. Ketik pertanyaan seperti pencarian Google untuk melihat hasil dari dummy data internal."}
-              </p>
-              {hasQuery && searchPlan ? <p>Kata kunci AI: {searchPlan.keywords.join(", ") || "-"}.</p> : null}
-            </div>
-          </div>
-
-          {summaryOnly && hasQuery ? null : hasResults ? (
-            <div className="ai-result-list ai-result-list--single">
-              {visibleSales.map((sale) => (
-                <div className="ai-result-row" key={`sale-${sale.branchCode}-${sale.code}-${sale.itemName}`}>
-                  <div>
-                    <span className="ai-result-badge">Transaksi</span>
-                    <strong>{sale.itemName}</strong>
-                    <span className="ai-result-meta">
-                      {sale.code} - {sale.branchName} - {formatDate(sale.date)} - {sale.customer}
-                    </span>
-                  </div>
-                  <div className="right">
-                    <strong>{formatCurrency(sale.total)}</strong>
-                    <span>{sale.quantity} item - {sale.paymentMethod} - {sale.status}</span>
-                  </div>
+          <section className="ai-results-panel">
+            {hasQuery ? (
+              <div className="ai-answer">
+                <div className="ai-answer__icon">
+                  <Bot size={22} />
                 </div>
-              ))}
-
-              {visibleBranches.map((branch) => (
-                <Link className="ai-result-row" href={`/cabang?kode=${branch.code}`} key={`branch-${branch.code}`}>
-                  <div>
-                    <span className="ai-result-badge ai-result-badge--branch">Cabang</span>
-                    <strong>{branch.name}</strong>
-                    <span className="ai-result-meta">
-                      {branch.code} - {branch.transactions} transaksi - produk teratas: {branch.topProduct}
-                    </span>
-                  </div>
-                  <div className="right">
-                    <strong>{formatCurrency(branch.monthSales)}</strong>
-                    <span>{branch.status} - stok limit {formatNumber(branch.stockLimit)}</span>
-                  </div>
-                </Link>
-              ))}
-
-              {visibleStock.map((product) => (
-                <div className="ai-result-row" key={`stock-${product.branchName}-${product.code}-${product.name}`}>
-                  <div>
-                    <span className="ai-result-badge ai-result-badge--stock">Stok</span>
-                    <strong>{product.name}</strong>
-                    <span className="ai-result-meta">
-                      {product.code} - {product.branchName} - {getProductCategory(product.name)}
-                    </span>
-                  </div>
-                  <div className="right">
-                    <strong>{formatNumber(product.stock)} stok</strong>
-                    <span>{formatCurrency(product.price)}</span>
-                  </div>
+                <div>
+                  <strong>{summaryOnly ? `Jawaban untuk "${query}"` : `${totalResults} hasil untuk "${query}"`}</strong>
+                  <p>{searchResult?.answerText ?? `Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`}</p>
                 </div>
-              ))}
+              </div>
+            ) : null}
 
-              {visibleExpired.map((product) => (
-                <div className="ai-result-row" key={`expired-${product.branchName}-${product.code}-${product.expiredAt}-${product.name}`}>
-                  <div>
-                    <span className="ai-result-badge ai-result-badge--expired">Expired</span>
-                    <strong>{product.name}</strong>
-                    <span className="ai-result-meta">
-                      {product.branchName} - exp {formatDate(product.expiredAt)}
-                    </span>
+            {summaryOnly && hasQuery ? null : hasResults ? (
+              <div className="ai-result-list ai-result-list--single">
+                {visibleSales.map((sale) => (
+                  <div className="ai-result-row" key={`sale-${sale.branchCode}-${sale.code}-${sale.itemName}`}>
+                    <div>
+                      <span className="ai-result-badge">Transaksi</span>
+                      <strong>{sale.itemName}</strong>
+                      <span className="ai-result-meta">
+                        {sale.code} - {sale.branchName} - {formatDate(sale.date)} - {sale.customer}
+                      </span>
+                    </div>
+                    <div className="right">
+                      <strong>{formatCurrency(sale.total)}</strong>
+                      <span>{sale.quantity} item - {sale.paymentMethod} - {sale.status}</span>
+                    </div>
                   </div>
-                  <div className="right">
-                    <strong>{formatNumber(product.stock)} stok</strong>
-                    <span>{product.status === "expired" ? "Expired" : "Mendekati expired"}</span>
+                ))}
+
+                {visibleBranches.map((branch) => (
+                  <Link className="ai-result-row" href={`/cabang?kode=${branch.code}`} key={`branch-${branch.code}`}>
+                    <div>
+                      <span className="ai-result-badge ai-result-badge--branch">Cabang</span>
+                      <strong>{branch.name}</strong>
+                      <span className="ai-result-meta">
+                        {branch.code} - {branch.transactions} transaksi - produk teratas: {branch.topProduct}
+                      </span>
+                    </div>
+                    <div className="right">
+                      <strong>{formatCurrency(branch.monthSales)}</strong>
+                      <span>{branch.status} - stok limit {formatNumber(branch.stockLimit)}</span>
+                    </div>
+                  </Link>
+                ))}
+
+                {visibleStock.map((product) => (
+                  <div className="ai-result-row" key={`stock-${product.branchName}-${product.code}-${product.name}`}>
+                    <div>
+                      <span className="ai-result-badge ai-result-badge--stock">Stok</span>
+                      <strong>{product.name}</strong>
+                      <span className="ai-result-meta">
+                        {product.code} - {product.branchName} - {getProductCategory(product.name)}
+                      </span>
+                    </div>
+                    <div className="right">
+                      <strong>{formatNumber(product.stock)} stok</strong>
+                      <span>{formatCurrency(product.price)}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state empty-state--search ai-empty">
-              <Search size={32} />
-              <strong>{hasQuery ? "Belum ada hasil yang cocok" : "Belum ada pencarian"}</strong>
-              <span>
-                {hasQuery
-                  ? "Coba gunakan kata lain seperti nama cabang, kategori produk, faktur, stok, atau expired."
-                  : "Data hanya akan muncul dalam bentuk hasil pencarian AI setelah user memasukkan prompt."}
-              </span>
-            </div>
-          )}
-        </article>
+                ))}
+
+                {visibleExpired.map((product) => (
+                  <div className="ai-result-row" key={`expired-${product.branchName}-${product.code}-${product.expiredAt}-${product.name}`}>
+                    <div>
+                      <span className="ai-result-badge ai-result-badge--expired">Expired</span>
+                      <strong>{product.name}</strong>
+                      <span className="ai-result-meta">
+                        {product.branchName} - exp {formatDate(product.expiredAt)}
+                      </span>
+                    </div>
+                    <div className="right">
+                      <strong>{formatNumber(product.stock)} stok</strong>
+                      <span>{product.status === "expired" ? "Expired" : "Mendekati expired"}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state empty-state--search ai-empty">
+                <Search size={30} />
+                <strong>{hasQuery ? "Belum ada hasil yang cocok" : "Belum ada pencarian"}</strong>
+                <span>
+                  {hasQuery
+                    ? "Coba gunakan kata lain seperti nama cabang, kategori produk, faktur, stok, atau expired."
+                    : "Ketik pertanyaan untuk mencari data POS dengan AI."}
+                </span>
+              </div>
+            )}
+          </section>
+        </div>
       </section>
     </main>
   );
