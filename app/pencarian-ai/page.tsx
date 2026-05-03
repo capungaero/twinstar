@@ -113,7 +113,7 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
               </strong>
               <p>
                 {hasQuery
-                  ? `${searchResult?.searchPlan?.summary ?? "Pencarian lokal membantu memahami prompt ini."} ${searchResult?.answerText ?? `Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`}`
+                  ? (searchResult?.answerText ?? `Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`)
                   : "Data tidak ditampilkan sebelum ada prompt. Ketik pertanyaan seperti pencarian Google untuk melihat hasil dari dummy data internal."}
               </p>
               {hasQuery && searchPlan ? <p>Kata kunci AI: {searchPlan.keywords.join(", ") || "-"}.</p> : null}

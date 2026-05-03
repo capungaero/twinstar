@@ -24,11 +24,69 @@ export type AiSearchResponse = {
 };
 
 function normalize(value: string) {
-  return value.toLowerCase().replace(/\s+/g, " ").trim();
+  return value.toLowerCase().replace(/\bsctock\b/g, "stock").replace(/\s+/g, " ").trim();
 }
 
-function scoreValues(query: string, values: Array<string | number | null | undefined>) {
-  const terms = normalize(query).split(" ").filter(Boolean);
+const SEARCH_STOP_WORDS = new Set([
+  "ai",
+  "ambil",
+  "barang",
+  "bintang",
+  "cabang",
+  "cair",
+  "cari",
+  "cek",
+  "data",
+  "dan",
+  "di",
+  "item",
+  "kembar",
+  "limit",
+  "lihat",
+  "produk",
+  "saja",
+  "sja",
+  "stock",
+  "stok",
+  "tampilkan",
+  "yang"
+]);
+
+function extractSearchTerms(query: string, searchPlan: GeminiSearchPlan | null) {
+  const source = [query, ...(searchPlan?.keywords ?? [])].join(" ");
+  return Array.from(
+    new Set(
+      normalize(source)
+        .split(/[^a-z0-9]+/i)
+        .map((term) => term.trim())
+        .filter((term) => term.length >= 3)
+        .filter((term) => !/^\d+$/.test(term))
+        .filter((term) => !SEARCH_STOP_WORDS.has(term))
+    )
+  ).slice(0, 8);
+}
+
+function getBranchCodeFilter(query: string) {
+  const normalized = normalize(query);
+  const match = normalized.match(/\bc(?:abang)?\s*0?(\d{1,2})\b/) ?? normalized.match(/\bc(0?\d{1,2})\b/);
+  if (!match) return null;
+
+  return `C${match[1].padStart(2, "0")}`;
+}
+
+function isLowStockQuery(query: string) {
+  return /stok\s+limit|stock\s+limit|limit\s+stok|limit\s+stock|stok\s+kosong|stock\s+kosong/i.test(normalize(query));
+}
+
+function matchesBranch(branchCode: string | undefined, branchName: string | undefined, branchFilter: string | null) {
+  if (!branchFilter) return true;
+
+  const normalizedName = normalize(branchName ?? "");
+  const branchNumber = String(Number(branchFilter.slice(1)));
+  return branchCode === branchFilter || normalizedName.includes(`cabang ${branchNumber}`) || normalizedName.includes(`cabang ${branchFilter.slice(1)}`);
+}
+
+function scoreValues(terms: string[], values: Array<string | number | null | undefined>) {
   if (!terms.length) return 0;
 
   const text = normalize(values.map((value) => String(value ?? "")).join(" "));
@@ -73,7 +131,23 @@ function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly"
     return `Total penjualan yang cocok dengan pencarian ini adalah ${formatCurrency(result.totalSales)} dari ${formatNumber(result.totalResults)} transaksi. Estimasi laba: ${formatCurrency(result.totalProfit)}.`;
   }
 
-  return `AI menemukan ${result.visibleSales.length} transaksi, ${result.visibleStock.length} data stok, ${result.visibleExpired.length} barang expired, dan ${result.visibleBranches.length} cabang. Total penjualan terkait: ${formatCurrency(result.totalSales)}, estimasi laba: ${formatCurrency(result.totalProfit)}.`;
+  if (result.visibleStock.length > 0 && result.visibleSales.length === 0 && result.visibleExpired.length === 0 && result.visibleBranches.length === 0) {
+    return `Ditemukan ${formatNumber(result.totalResults)} data stok yang cocok. ${formatNumber(result.visibleStock.length)} data teratas ditampilkan di bawah.`;
+  }
+
+  if (result.visibleSales.length > 0 && result.visibleStock.length === 0 && result.visibleExpired.length === 0 && result.visibleBranches.length === 0) {
+    return `Ditemukan ${formatNumber(result.totalResults)} transaksi yang cocok. Total penjualan: ${formatCurrency(result.totalSales)}. Estimasi laba: ${formatCurrency(result.totalProfit)}.`;
+  }
+
+  if (result.visibleExpired.length > 0 && result.visibleSales.length === 0 && result.visibleStock.length === 0 && result.visibleBranches.length === 0) {
+    return `Ditemukan ${formatNumber(result.totalResults)} barang expired atau mendekati expired yang cocok.`;
+  }
+
+  if (result.visibleBranches.length > 0 && result.visibleSales.length === 0 && result.visibleStock.length === 0 && result.visibleExpired.length === 0) {
+    return `Ditemukan ${formatNumber(result.totalResults)} cabang yang cocok dengan pencarian.`;
+  }
+
+  return `Ditemukan ${formatNumber(result.totalResults)} hasil terkait: ${result.visibleSales.length} transaksi, ${result.visibleStock.length} data stok, ${result.visibleExpired.length} barang expired, dan ${result.visibleBranches.length} cabang. Total penjualan: ${formatCurrency(result.totalSales)}.`;
 }
 
 function formatResultLines(result: AiSearchResponse) {
@@ -127,10 +201,13 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const data = await getDashboardData();
   const normalizedQuery = normalize(query);
   const hasQuery = normalizedQuery.length > 0;
-  const searchPlan = hasQuery ? (await inferGeminiSearchPlan(query)) ?? buildFallbackSearchPlan(query) : null;
-  const effectiveQuery = hasQuery ? [query, ...(searchPlan?.keywords ?? []), ...(searchPlan?.branchHints ?? [])].join(" ") : "";
+  const searchPlan = hasQuery ? (await inferGeminiSearchPlan(normalizedQuery)) ?? buildFallbackSearchPlan(normalizedQuery) : null;
+  const searchTerms = hasQuery ? extractSearchTerms(query, searchPlan) : [];
+  const effectiveQuery = searchTerms.join(" ");
   const summaryOnly = wantsSummaryOnly(query);
   const salesWindowDays = getSalesWindowDays(query);
+  const branchFilter = getBranchCodeFilter(query);
+  const lowStockOnly = isLowStockQuery(query);
   const wantsSales = hasQuery && (searchPlan?.focus === "sales" || searchPlan?.focus === "mixed");
   const wantsStock = hasQuery && (searchPlan?.focus === "stock" || searchPlan?.focus === "mixed");
   const wantsExpired = hasQuery && (searchPlan?.focus === "expired" || searchPlan?.focus === "mixed");
@@ -140,9 +217,10 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const matchedSales = hasQuery
     ? data.recentSales
         .filter((sale) => (salesWindowDays ? isWithinLastDays(sale.date, salesWindowDays) : true))
+        .filter((sale) => matchesBranch(sale.branchCode, sale.branchName, branchFilter))
         .map((sale) => ({
           item: sale,
-          score: scoreValues(effectiveQuery, [
+          score: scoreValues(searchTerms, [
             sale.code,
             sale.branchCode,
             sale.branchName,
@@ -156,41 +234,44 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
             sale.profit
           ])
         }))
-        .filter((match) => match.score > 0 || wantsSales)
+        .filter((match) => searchTerms.length === 0 || match.score > 0)
         .sort((a, b) => b.score - a.score || b.item.total - a.item.total)
         .map((match) => match.item)
     : [];
 
-  const stockSource = [...data.lowStockProducts, ...data.topStockProducts];
+  const stockSource = lowStockOnly ? data.lowStockProducts : [...data.lowStockProducts, ...data.topStockProducts];
   const matchedStock = hasQuery
     ? stockSource
+        .filter((product) => matchesBranch(undefined, product.branchName, branchFilter))
         .map((product) => ({
           item: product,
-          score: scoreValues(effectiveQuery, [product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price])
+          score: scoreValues(searchTerms, [product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price])
         }))
-        .filter((match) => match.score > 0 || wantsStock)
+        .filter((match) => searchTerms.length === 0 || match.score > 0)
         .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
         .map((match) => match.item)
     : [];
 
   const matchedExpired = hasQuery
     ? data.expiringProducts
+        .filter((product) => matchesBranch(undefined, product.branchName, branchFilter))
         .map((product) => ({
           item: product,
-          score: scoreValues(effectiveQuery, [product.code, product.branchName, product.name, product.status, product.expiredAt, product.stock])
+          score: scoreValues(searchTerms, [product.code, product.branchName, product.name, product.status, product.expiredAt, product.stock])
         }))
-        .filter((match) => match.score > 0 || wantsExpired)
+        .filter((match) => searchTerms.length === 0 || match.score > 0)
         .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
         .map((match) => match.item)
     : [];
 
   const matchedBranches = hasQuery
     ? data.branchSummaries
+        .filter((branch) => matchesBranch(branch.code, branch.name, branchFilter))
         .map((branch) => ({
           item: branch,
-          score: scoreValues(effectiveQuery, [branch.code, branch.name, branch.status, branch.topProduct, branch.transactions, branch.monthSales])
+          score: scoreValues(searchTerms, [branch.code, branch.name, branch.status, branch.topProduct, branch.transactions, branch.monthSales])
         }))
-        .filter((match) => match.score > 0 || wantsBranch)
+        .filter((match) => searchTerms.length === 0 || match.score > 0 || wantsBranch)
         .sort((a, b) => b.score - a.score || b.item.monthSales - a.item.monthSales)
         .map((match) => match.item)
     : [];
