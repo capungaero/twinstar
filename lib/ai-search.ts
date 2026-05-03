@@ -1,4 +1,4 @@
-import { buildFallbackSearchPlan, inferGeminiSearchPlan, type GeminiSearchPlan } from "@/lib/gemini";
+import { answerGeminiFromData, buildFallbackSearchPlan, inferGeminiSearchPlan, type GeminiSearchPlan } from "@/lib/gemini";
 import { getProductCategory } from "@/lib/filters";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { getDashboardData } from "@/lib/legacy-db";
@@ -224,6 +224,74 @@ function formatResultLines(result: AiSearchResponse) {
   return lines.join("\n");
 }
 
+function buildGeminiDataSnapshot(data: DashboardData, query: string) {
+  const normalizedQuery = normalize(query);
+  const branchFilter = getBranchCodeFilter(query);
+  const salesWindowDays = getSalesWindowDays(query);
+  const queryTokens = extractSearchTerms(query, buildFallbackSearchPlan(query));
+  const stockSource = [...data.lowStockProducts, ...data.topStockProducts];
+
+  const scoreText = (values: Array<string | number | null | undefined>) => scoreValues(queryTokens, values);
+  const filterBranch = (branchName?: string, branchCode?: string) => matchesBranch(branchCode, branchName, branchFilter);
+  const stripScore = <T extends { _score: number }>(item: T) => {
+    const { _score: _removed, ...rest } = item;
+    void _removed;
+    return rest;
+  };
+
+  const candidateSales = data.recentSales
+    .filter((sale) => (salesWindowDays ? isWithinLastDays(sale.date, salesWindowDays) : true))
+    .filter((sale) => filterBranch(sale.branchName, sale.branchCode))
+    .map((sale) => ({
+      ...sale,
+      _score: scoreText([sale.code, sale.branchCode, sale.branchName, sale.customer, sale.cashier, sale.itemName, sale.category, sale.paymentMethod, sale.status])
+    }))
+    .filter((sale) => queryTokens.length === 0 || sale._score > 0 || /penjualan|omzet|laba|keuntungan|profit|transaksi|tahun|bulan|total/i.test(normalizedQuery))
+    .sort((a, b) => b._score - a._score || b.total - a.total)
+    .slice(0, 80)
+    .map(stripScore);
+
+  const candidateStock = stockSource
+    .filter((product) => filterBranch(product.branchName))
+    .map((product) => ({
+      ...product,
+      category: getProductCategory(product.name),
+      _score: scoreText([product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price])
+    }))
+    .filter((product) => queryTokens.length === 0 || product._score > 0 || /stok|stock|barang|produk|item/i.test(normalizedQuery))
+    .sort((a, b) => b._score - a._score || a.stock - b.stock)
+    .slice(0, 80)
+    .map(stripScore);
+
+  const candidateExpired = data.expiringProducts
+    .filter((product) => filterBranch(product.branchName))
+    .map((product) => ({
+      ...product,
+      _score: scoreText([product.code, product.branchName, product.name, product.status, product.expiredAt, product.stock])
+    }))
+    .filter((product) => queryTokens.length === 0 || product._score > 0 || /expired|expire|kedaluwarsa|kadaluarsa/i.test(normalizedQuery))
+    .sort((a, b) => b._score - a._score || a.stock - b.stock)
+    .slice(0, 50)
+    .map(stripScore);
+
+  return {
+    generatedAt: data.generatedAt,
+    summary: data.summary,
+    branchSummaries: data.branchSummaries,
+    queryContext: {
+      normalizedQuery,
+      branchFilter,
+      salesWindowDays,
+      queryTokens
+    },
+    candidates: {
+      sales: candidateSales,
+      stock: candidateStock,
+      expired: candidateExpired
+    }
+  };
+}
+
 export async function buildAiSearchResponse(query: string): Promise<AiSearchResponse> {
   const data = await getDashboardData();
   const normalizedQuery = normalize(query);
@@ -315,7 +383,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const totalResults = allSales.length + allStock.length + allExpired.length + allBranches.length;
   const totalSales = allSales.reduce((sum, sale) => sum + sale.total, 0);
   const totalProfit = allSales.reduce((sum, sale) => sum + sale.profit, 0);
-  const answerText = conversational
+  const fallbackAnswerText = conversational
     ? buildConversationalAnswer(query)
     : hasQuery
       ? formatAnswerText({
@@ -330,6 +398,11 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         totalProfit
       })
       : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS.";
+  const geminiAnswer = hasQuery ? await answerGeminiFromData(query, buildGeminiDataSnapshot(data, query)) : null;
+  const answerText = geminiAnswer?.answer ?? fallbackAnswerText;
+  const finalTotalResults = geminiAnswer?.totalResults || totalResults;
+  const finalTotalSales = geminiAnswer?.totalSales || totalSales;
+  const finalTotalProfit = geminiAnswer?.totalProfit || totalProfit;
 
   const response: AiSearchResponse = {
     query,
@@ -343,9 +416,9 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
     visibleStock: filteredStock,
     visibleExpired: filteredExpired,
     visibleBranches: filteredBranches,
-    totalResults,
-    totalSales,
-    totalProfit,
+    totalResults: finalTotalResults,
+    totalSales: finalTotalSales,
+    totalProfit: finalTotalProfit,
     replyText: hasQuery
       ? formatResultLines({
           query,
@@ -359,9 +432,9 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
           visibleStock: filteredStock,
           visibleExpired: filteredExpired,
           visibleBranches: filteredBranches,
-          totalResults,
-          totalSales,
-          totalProfit,
+          totalResults: finalTotalResults,
+          totalSales: finalTotalSales,
+          totalProfit: finalTotalProfit,
           replyText: ""
         })
       : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS."
