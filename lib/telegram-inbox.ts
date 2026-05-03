@@ -17,6 +17,7 @@ export type TelegramInboxItem = {
 };
 
 const INBOX_FILE_PATH = path.join(process.cwd(), ".telegram", "inbox.jsonl");
+type UnknownRecord = Record<string, unknown>;
 
 async function ensureInboxDir() {
   await fs.mkdir(path.dirname(INBOX_FILE_PATH), { recursive: true });
@@ -26,25 +27,65 @@ function stringifyInboxItem(item: TelegramInboxItem) {
   return `${JSON.stringify(item)}\n`;
 }
 
-export function mapTelegramUpdateToInboxItem(update: any): TelegramInboxItem | null {
-  const message = update?.message ?? update?.edited_message ?? update?.channel_post ?? update?.edited_channel_post;
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null;
+}
+
+function getNestedRecord(parent: UnknownRecord, key: string) {
+  const value = parent[key];
+  return isRecord(value) ? value : null;
+}
+
+function getRecordValue(parent: UnknownRecord | null, key: string): unknown {
+  if (!parent) {
+    return null;
+  }
+
+  return parent[key];
+}
+
+function getString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function getNumberLike(value: unknown) {
+  return typeof value === "number" || typeof value === "string" ? value : null;
+}
+
+function getTelegramMessage(update: unknown) {
+  if (!isRecord(update)) {
+    return null;
+  }
+
+  return (
+    getNestedRecord(update, "message") ??
+    getNestedRecord(update, "edited_message") ??
+    getNestedRecord(update, "channel_post") ??
+    getNestedRecord(update, "edited_channel_post")
+  );
+}
+
+export function mapTelegramUpdateToInboxItem(update: unknown): TelegramInboxItem | null {
+  const message = getTelegramMessage(update);
 
   if (!message) {
     return null;
   }
 
-  const text = typeof message?.text === "string" ? message.text : typeof message?.caption === "string" ? message.caption : null;
+  const chat = getNestedRecord(message, "chat");
+  const from = getNestedRecord(message, "from");
+  const text = getString(getRecordValue(message, "text")) ?? getString(getRecordValue(message, "caption"));
   const aiPrompt = parseAiPrompt(text);
 
   return {
     kind: aiPrompt ? "ai_request" : "message",
     receivedAt: new Date().toISOString(),
-    updateId: Number(update?.update_id ?? 0),
-    chatId: message?.chat?.id ?? null,
-    messageId: message?.message_id ?? null,
-    fromId: message?.from?.id ?? null,
-    fromName: [message?.from?.first_name, message?.from?.last_name].filter(Boolean).join(" ") || null,
-    username: message?.from?.username ?? null,
+    updateId: Number(getNumberLike(getRecordValue(isRecord(update) ? update : null, "update_id")) ?? 0),
+    chatId: getNumberLike(getRecordValue(chat, "id")),
+    messageId: Number(getNumberLike(getRecordValue(message, "message_id")) ?? 0),
+    fromId: getNumberLike(getRecordValue(from, "id")),
+    fromName: [getString(getRecordValue(from, "first_name")), getString(getRecordValue(from, "last_name"))].filter(Boolean).join(" ") || null,
+    username: getString(getRecordValue(from, "username")),
     text,
     command: aiPrompt ? "/ai" : null,
     aiPrompt,

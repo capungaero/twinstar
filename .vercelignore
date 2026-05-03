@@ -1,0 +1,13 @@
+.git
+.next
+.vercel
+node_modules
+tools/
+whatsapp-mcp/
+*.zip
+*.png
+*.log
+*.tsbuildinfo
+PANDUAN_APLIKASI_POS.md
+history.md
+New folder/
