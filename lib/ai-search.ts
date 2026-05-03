@@ -12,6 +12,7 @@ export type AiSearchResponse = {
   searchPlan: GeminiSearchPlan | null;
   effectiveQuery: string;
   summaryOnly: boolean;
+  conversational: boolean;
   answerText: string;
   visibleSales: DashboardData["recentSales"];
   visibleStock: StockItem[];
@@ -41,14 +42,23 @@ const SEARCH_STOP_WORDS = new Set([
   "di",
   "item",
   "kembar",
+  "keuntungan",
+  "laba",
   "limit",
   "lihat",
+  "omzet",
+  "pendapatan",
+  "penjualan",
   "produk",
+  "profit",
   "saja",
   "sja",
   "stock",
   "stok",
+  "tahun",
   "tampilkan",
+  "terakhir",
+  "total",
   "yang"
 ]);
 
@@ -105,6 +115,24 @@ function wantsSalesAggregate(query: string) {
   return /total|jumlah|berapa|hitung|omzet|penjualan|pendapatan|laba/i.test(query);
 }
 
+function wantsProfitAggregate(query: string) {
+  return /keuntungan|profit|laba/i.test(query);
+}
+
+function isConversationalQuery(query: string) {
+  const normalized = normalize(query);
+  return /^(siapa|apa)\s+(kamu|anda)|^(kamu|anda)\s+siapa|^help$|^bantuan$|^halo$|^hai$|^test$|^tes$/i.test(normalized);
+}
+
+function buildConversationalAnswer(query: string) {
+  const normalized = normalize(query);
+  if (/siapa|kamu|anda/.test(normalized)) {
+    return "Saya Admin AI untuk dashboard POS. Kirim pertanyaan tentang penjualan, stok, cabang, produk expired, atau laba, nanti saya carikan dari database.";
+  }
+
+  return "Saya siap membantu pencarian data POS. Contoh: stok betadine cabang 10, total penjualan bulan ini, atau barang expired minggu ini.";
+}
+
 function getSalesWindowDays(query: string) {
   if (/\b2\s*bulan|dua\s+bulan/i.test(query)) return 60;
   if (/\b3\s*bulan|tiga\s+bulan/i.test(query)) return 90;
@@ -127,6 +155,10 @@ function isWithinLastDays(dateValue: string | null, days: number) {
 }
 
 function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly" | "visibleSales" | "visibleStock" | "visibleExpired" | "visibleBranches" | "totalResults" | "totalSales" | "totalProfit">) {
+  if (result.summaryOnly && wantsProfitAggregate(result.query)) {
+    return `Total laba yang cocok dengan pencarian ini adalah ${formatCurrency(result.totalProfit)} dari ${formatNumber(result.totalResults)} transaksi. Total penjualan terkait: ${formatCurrency(result.totalSales)}.`;
+  }
+
   if (result.summaryOnly && wantsSalesAggregate(result.query)) {
     return `Total penjualan yang cocok dengan pencarian ini adalah ${formatCurrency(result.totalSales)} dari ${formatNumber(result.totalResults)} transaksi. Estimasi laba: ${formatCurrency(result.totalProfit)}.`;
   }
@@ -151,14 +183,9 @@ function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly"
 }
 
 function formatResultLines(result: AiSearchResponse) {
-  const lines = [
-    `Pencarian AI: ${result.query}`,
-    result.searchPlan?.summary ? `Ringkasan: ${result.searchPlan.summary}` : "Ringkasan: pencarian lokal dipakai.",
-    `Hasil: ${result.totalResults} | Penjualan: ${formatCurrency(result.totalSales)} | Laba: ${formatCurrency(result.totalProfit)}`,
-    result.answerText
-  ];
+  const lines = [result.answerText];
 
-  if (result.summaryOnly) {
+  if (result.summaryOnly || result.conversational) {
     return lines.join("\n");
   }
 
@@ -201,10 +228,11 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const data = await getDashboardData();
   const normalizedQuery = normalize(query);
   const hasQuery = normalizedQuery.length > 0;
+  const conversational = hasQuery && isConversationalQuery(query);
   const searchPlan = hasQuery ? (await inferGeminiSearchPlan(normalizedQuery)) ?? buildFallbackSearchPlan(normalizedQuery) : null;
   const searchTerms = hasQuery ? extractSearchTerms(query, searchPlan) : [];
   const effectiveQuery = searchTerms.join(" ");
-  const summaryOnly = wantsSummaryOnly(query);
+  const summaryOnly = wantsSummaryOnly(query) || wantsProfitAggregate(query);
   const salesWindowDays = getSalesWindowDays(query);
   const branchFilter = getBranchCodeFilter(query);
   const lowStockOnly = isLowStockQuery(query);
@@ -214,7 +242,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const wantsBranch = hasQuery && (searchPlan?.focus === "branch" || searchPlan?.focus === "mixed");
   const broadSearch = hasQuery && searchPlan?.focus === "mixed";
 
-  const matchedSales = hasQuery
+  const matchedSales = hasQuery && !conversational
     ? data.recentSales
         .filter((sale) => (salesWindowDays ? isWithinLastDays(sale.date, salesWindowDays) : true))
         .filter((sale) => matchesBranch(sale.branchCode, sale.branchName, branchFilter))
@@ -240,7 +268,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
     : [];
 
   const stockSource = lowStockOnly ? data.lowStockProducts : [...data.lowStockProducts, ...data.topStockProducts];
-  const matchedStock = hasQuery
+  const matchedStock = hasQuery && !conversational
     ? stockSource
         .filter((product) => matchesBranch(undefined, product.branchName, branchFilter))
         .map((product) => ({
@@ -252,7 +280,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         .map((match) => match.item)
     : [];
 
-  const matchedExpired = hasQuery
+  const matchedExpired = hasQuery && !conversational
     ? data.expiringProducts
         .filter((product) => matchesBranch(undefined, product.branchName, branchFilter))
         .map((product) => ({
@@ -264,7 +292,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         .map((match) => match.item)
     : [];
 
-  const matchedBranches = hasQuery
+  const matchedBranches = hasQuery && !conversational
     ? data.branchSummaries
         .filter((branch) => matchesBranch(branch.code, branch.name, branchFilter))
         .map((branch) => ({
@@ -287,8 +315,10 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const totalResults = allSales.length + allStock.length + allExpired.length + allBranches.length;
   const totalSales = allSales.reduce((sum, sale) => sum + sale.total, 0);
   const totalProfit = allSales.reduce((sum, sale) => sum + sale.profit, 0);
-  const answerText = hasQuery
-    ? formatAnswerText({
+  const answerText = conversational
+    ? buildConversationalAnswer(query)
+    : hasQuery
+      ? formatAnswerText({
         query,
         summaryOnly,
         visibleSales: filteredSales,
@@ -299,7 +329,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         totalSales,
         totalProfit
       })
-    : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS.";
+      : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS.";
 
   const response: AiSearchResponse = {
     query,
@@ -307,6 +337,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
     searchPlan,
     effectiveQuery,
     summaryOnly,
+    conversational,
     answerText,
     visibleSales: filteredSales,
     visibleStock: filteredStock,
@@ -322,6 +353,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
           searchPlan,
           effectiveQuery,
           summaryOnly,
+          conversational,
           answerText,
           visibleSales: filteredSales,
           visibleStock: filteredStock,
