@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildAiSearchResponse } from "@/lib/ai-search";
-import { isMatchingKirimiNumber, normalizeKirimiPhoneNumber, sendKirimiMessage } from "@/lib/kirimi";
+import { normalizeKirimiPhoneNumber, sendKirimiMessage } from "@/lib/kirimi";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +27,27 @@ function getNestedRecord(value: unknown, key: string) {
   return isRecord(nested) ? nested : null;
 }
 
+function findFirstStringByKeys(value: unknown, keys: string[], depth = 0): string {
+  if (!isRecord(value) || depth > 6) {
+    return "";
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (keys.includes(key.toLowerCase()) && typeof child === "string" && child.trim()) {
+      return child.trim();
+    }
+  }
+
+  for (const child of Object.values(value)) {
+    const found = findFirstStringByKeys(child, keys, depth + 1);
+    if (found) {
+      return found;
+    }
+  }
+
+  return "";
+}
+
 function extractIncomingText(payload: unknown) {
   if (!isRecord(payload)) {
     return "";
@@ -45,7 +66,8 @@ function extractIncomingText(payload: unknown) {
     data.content,
     data.body,
     payload.message,
-    payload.text
+    payload.text,
+    findFirstStringByKeys(payload, ["text", "body", "content", "caption", "conversation", "message"])
   );
 }
 
@@ -78,7 +100,8 @@ function extractIncomingNumber(payload: unknown) {
     payload.from,
     payload.sender,
     payload.phone,
-    payload.number
+    payload.number,
+    findFirstStringByKeys(payload, ["from", "sender", "phone", "number", "remotejid", "remote_jid", "participant"])
   );
 }
 
@@ -109,10 +132,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, handled: false, reason: "No text message" });
   }
 
-  if (targetNumber && incomingNumber && !isMatchingKirimiNumber(incomingNumber, targetNumber)) {
-    return NextResponse.json({ ok: true, handled: false, reason: "Message ignored for non-target number" });
-  }
-
   const query = stripAiPrefix(incomingText);
   if (!query) {
     return NextResponse.json({ ok: true, handled: false, reason: "Empty query" });
@@ -126,7 +145,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, handled: false, reason: "Empty reply text" }, { status: 500 });
     }
 
-    const receiver = incomingNumber || targetNumber;
+    const receiver = targetNumber || incomingNumber;
     if (!receiver) {
       return NextResponse.json({ ok: false, handled: false, reason: "No receiver detected" }, { status: 400 });
     }
