@@ -48,6 +48,43 @@ function findFirstStringByKeys(value: unknown, keys: string[], depth = 0): strin
   return "";
 }
 
+function findFirstBooleanByKeys(value: unknown, keys: string[], depth = 0): boolean | null {
+  if (!isRecord(value) || depth > 6) {
+    return null;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    if (!keys.includes(key.toLowerCase())) {
+      continue;
+    }
+
+    if (typeof child === "boolean") {
+      return child;
+    }
+
+    if (typeof child === "string") {
+      const normalized = child.toLowerCase().trim();
+      if (["true", "1", "yes", "outgoing", "sent", "from_me"].includes(normalized)) return true;
+      if (["false", "0", "no", "incoming", "received"].includes(normalized)) return false;
+    }
+  }
+
+  for (const child of Object.values(value)) {
+    const found = findFirstBooleanByKeys(child, keys, depth + 1);
+    if (found !== null) {
+      return found;
+    }
+  }
+
+  return null;
+}
+
+function isOutgoingMessage(payload: unknown) {
+  return (
+    findFirstBooleanByKeys(payload, ["fromme", "from_me", "isfromme", "is_from_me", "outgoing", "sentbyme", "sent_by_me"]) === true
+  );
+}
+
 function extractIncomingText(payload: unknown) {
   if (!isRecord(payload)) {
     return "";
@@ -106,12 +143,14 @@ function extractIncomingNumber(payload: unknown) {
 }
 
 function stripAiPrefix(text: string) {
-  if (/^\/ai\s*:?\s*$/i.test(text.trim())) {
+  const cleaned = text.replace(/^(?:\s*Pencarian AI:\s*)+/i, "").trim();
+
+  if (/^\/ai\s*:?\s*$/i.test(cleaned)) {
     return "";
   }
 
-  const match = text.match(/^\/ai\s*:?\s*([\s\S]+)$/i);
-  return match ? match[1].trim() : text.trim();
+  const match = cleaned.match(/^\/ai\s*:?\s*([\s\S]+)$/i);
+  return match ? match[1].trim() : cleaned;
 }
 
 export async function GET() {
@@ -130,6 +169,10 @@ export async function POST(request: Request) {
 
   if (!incomingText) {
     return NextResponse.json({ ok: true, handled: false, reason: "No text message" });
+  }
+
+  if (isOutgoingMessage(body) || /^Pencarian AI:/i.test(incomingText.trim())) {
+    return NextResponse.json({ ok: true, handled: false, reason: "Outgoing or bot reply ignored" });
   }
 
   const query = stripAiPrefix(incomingText);

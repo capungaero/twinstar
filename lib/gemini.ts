@@ -44,26 +44,8 @@ function normalizeFocus(value: unknown): SearchFocus {
   return "mixed";
 }
 
-export async function inferGeminiSearchPlan(query: string): Promise<GeminiSearchPlan | null> {
-  const apiKey = getGeminiKey();
-  if (!apiKey) {
-    return null;
-  }
-
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.0-flash";
-  const prompt = [
-    "You are a POS search planner.",
-    "Analyze the user's query and return ONLY JSON with this shape:",
-    '{ "focus": "sales|stock|expired|branch|mixed", "keywords": ["..."], "branchHints": ["..."], "summary": "...", "confidence": 0.0 }',
-    "Rules:",
-    "- keywords must be short search phrases that help find matching dashboard records.",
-    "- branchHints should contain branch names or codes if the query implies a branch.",
-    "- summary should be one concise sentence.",
-    "- confidence must be between 0 and 1.",
-    `Query: ${query}`
-  ].join("\n");
-
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+async function generateGeminiContent(model: string, apiKey: string, prompt: string) {
+  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
@@ -84,8 +66,37 @@ export async function inferGeminiSearchPlan(query: string): Promise<GeminiSearch
       ]
     })
   });
+}
 
-  if (!response.ok) {
+export async function inferGeminiSearchPlan(query: string): Promise<GeminiSearchPlan | null> {
+  const apiKey = getGeminiKey();
+  if (!apiKey) {
+    return null;
+  }
+
+  const configuredModel = process.env.GEMINI_MODEL?.trim();
+  const models = Array.from(new Set([configuredModel, "gemini-2.5-flash", "gemini-flash-latest"].filter(Boolean))) as string[];
+  const prompt = [
+    "You are a POS search planner.",
+    "Analyze the user's query and return ONLY JSON with this shape:",
+    '{ "focus": "sales|stock|expired|branch|mixed", "keywords": ["..."], "branchHints": ["..."], "summary": "...", "confidence": 0.0 }',
+    "Rules:",
+    "- keywords must be short search phrases that help find matching dashboard records.",
+    "- branchHints should contain branch names or codes if the query implies a branch.",
+    "- summary should be one concise sentence.",
+    "- confidence must be between 0 and 1.",
+    `Query: ${query}`
+  ].join("\n");
+
+  let response: Response | null = null;
+  for (const model of models) {
+    response = await generateGeminiContent(model, apiKey, prompt);
+    if (response.ok) {
+      break;
+    }
+  }
+
+  if (!response?.ok) {
     return null;
   }
 
