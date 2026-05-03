@@ -241,11 +241,14 @@ export default async function Home({ searchParams }: PageProps) {
         <DashboardRevenueClient
           branchColors={branchColors}
           branchSummaries={data.branchSummaries}
+          expiringProducts={data.expiringProducts}
           initialEndDate={endDate}
           initialRankingMode={rankingMode}
           initialStartDate={startDate}
           initialTimeframe={timeframe}
+          lowStockProducts={data.lowStockProducts}
           stockResume={stockResume}
+          topStockProducts={data.topStockProducts}
           todaySales={data.summary.todaySales}
         />
       </section>

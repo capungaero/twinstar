@@ -34,6 +34,33 @@ type BranchSummary = {
   };
 };
 
+type StockProduct = {
+  code: string;
+  branchName: string;
+  name: string;
+  stock: number;
+  minimum?: number;
+  price: number;
+};
+
+type ExpiringProduct = {
+  code: string;
+  branchName: string;
+  name: string;
+  expiredAt: string | null;
+  stock: number;
+  status: "expired" | "soon";
+};
+
+type StockModalType = "safe" | "limit" | "empty" | "expired";
+
+type StockModalState = {
+  branchCode?: string;
+  branchName?: string;
+  title: string;
+  type: StockModalType;
+};
+
 type ChartBranch = BranchSummary & {
   chartSales: number;
   chartTodaySales: number;
@@ -43,11 +70,14 @@ type ChartBranch = BranchSummary & {
 type Props = {
   branchColors: string[];
   branchSummaries: BranchSummary[];
+  expiringProducts: ExpiringProduct[];
   initialEndDate: string;
   initialRankingMode: RankingMode;
   initialStartDate: string;
   initialTimeframe: Timeframe;
+  lowStockProducts: StockProduct[];
   stockResume: BranchSummary["stockResume"];
+  topStockProducts: StockProduct[];
   todaySales: number;
 };
 
@@ -150,11 +180,14 @@ function TimeframeControls({
 export function DashboardRevenueClient({
   branchColors,
   branchSummaries,
+  expiringProducts,
   initialEndDate,
   initialRankingMode,
   initialStartDate,
   initialTimeframe,
+  lowStockProducts,
   stockResume,
+  topStockProducts,
   todaySales
 }: Props) {
   const [timeframe, setTimeframe] = useState<Timeframe>(initialTimeframe);
@@ -164,6 +197,7 @@ export function DashboardRevenueClient({
   const [draftStartDate, setDraftStartDate] = useState(initialStartDate);
   const [draftEndDate, setDraftEndDate] = useState(initialEndDate);
   const [trendRange, setTrendRange] = useState<TrendRange>("minggu");
+  const [stockModal, setStockModal] = useState<StockModalState | null>(null);
 
   const timeframeLabel = getTimeframeLabel(timeframe, startDate, endDate);
   const chartBranches = useMemo<ChartBranch[]>(() => {
@@ -252,6 +286,72 @@ export function DashboardRevenueClient({
   });
   const linePath = linePoints.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
   const areaPath = `${linePath} L ${linePoints[linePoints.length - 1]?.x ?? 0} 248 L ${linePoints[0]?.x ?? 0} 248 Z`;
+  const branchNameByCode = useMemo(
+    () => new Map(branchSummaries.map((branch) => [branch.code, branch.name])),
+    [branchSummaries]
+  );
+  const stockModalItems = useMemo(() => {
+    if (!stockModal) return [];
+
+    const branchName = stockModal.branchCode ? branchNameByCode.get(stockModal.branchCode) : undefined;
+    const sameBranch = (product: { branchName: string }) => !branchName || product.branchName === branchName;
+    const branchLimit = stockModal.branchCode
+      ? branchSummaries.find((branch) => branch.code === stockModal.branchCode)?.stockResume
+      : undefined;
+
+    if (stockModal.type === "safe") {
+      return branchSummaries.flatMap((branch) => {
+        if (stockModal.branchCode && branch.code !== stockModal.branchCode) return [];
+        return topStockProducts
+          .filter((product) => product.branchName === branch.name)
+          .slice(0, branch.stockResume.safeItems)
+          .map((product) => ({
+            code: product.code,
+            name: product.name,
+            branchName: product.branchName,
+            qty: product.stock,
+            meta: `Harga ${formatCurrency(product.price)}`
+          }));
+      });
+    }
+
+    if (stockModal.type === "limit") {
+      return lowStockProducts.filter(sameBranch).slice(0, branchLimit?.lowItems).map((product) => ({
+        code: product.code,
+        name: product.name,
+        branchName: product.branchName,
+        qty: product.stock,
+        meta: `Minimum ${formatNumber(product.minimum ?? 0)} | Harga ${formatCurrency(product.price)}`
+      }));
+    }
+
+    if (stockModal.type === "empty") {
+      return lowStockProducts.filter((product) => sameBranch(product) && product.stock === 0).map((product) => ({
+        code: product.code,
+        name: product.name,
+        branchName: product.branchName,
+        qty: product.stock,
+        meta: `Minimum ${formatNumber(product.minimum ?? 0)} | Harga ${formatCurrency(product.price)}`
+      }));
+    }
+
+    return expiringProducts.filter((product) => sameBranch(product) && product.status === "expired").slice(0, branchLimit?.expiredItems).map((product) => ({
+      code: product.code,
+      name: product.name,
+      branchName: product.branchName,
+      qty: product.stock,
+      meta: `${product.status === "expired" ? "Expired" : "Mendekati expired"} | ${product.expiredAt ?? "-"}`
+    }));
+  }, [branchNameByCode, branchSummaries, expiringProducts, lowStockProducts, stockModal, topStockProducts]);
+  const emptyItemPreview = lowStockProducts.filter((product) => product.stock === 0).slice(0, 5);
+  const openStockModal = (type: StockModalType, label: string, branch?: BranchSummary) => {
+    setStockModal({
+      branchCode: branch?.code,
+      branchName: branch?.name,
+      title: `${label} ${branch ? branch.name.replace("Bintang Kembar ", "") : "semua cabang"}`,
+      type
+    });
+  };
 
   return (
     <>
@@ -468,6 +568,21 @@ export function DashboardRevenueClient({
                 Aman {formatNumber(stockResume.safeItems)} item, limit {formatNumber(stockResume.lowItems)}, kosong{" "}
                 {formatNumber(stockResume.emptyItems)}, expired/mendekati {formatNumber(stockResume.expiredItems)}.
               </p>
+              <div className="stock-warning-total__actions" aria-label="Detail stok semua cabang">
+                <button type="button" onClick={() => openStockModal("safe", "Aman")}>Aman {formatNumber(stockResume.safeItems)}</button>
+                <button type="button" onClick={() => openStockModal("limit", "Limit")}>Limit {formatNumber(stockResume.lowItems)}</button>
+                <button type="button" onClick={() => openStockModal("empty", "Kosong")}>Kosong {formatNumber(stockResume.emptyItems)}</button>
+                <button type="button" onClick={() => openStockModal("expired", "Expired")}>Expired {formatNumber(stockResume.expiredItems)}</button>
+              </div>
+              <div className="stock-empty-preview">
+                <strong>Detail item kosong</strong>
+                {emptyItemPreview.map((product) => (
+                  <button type="button" onClick={() => openStockModal("empty", "Kosong")} key={`${product.branchName}-${product.code}`}>
+                    <span>{product.name}</span>
+                    <em>{product.branchName}</em>
+                  </button>
+                ))}
+              </div>
             </section>
             <section className="stock-warning-branches">
               {branchSummaries.map((branch, index) => (
@@ -480,26 +595,26 @@ export function DashboardRevenueClient({
                     <strong>{branch.name.replace("Bintang Kembar ", "")}</strong>
                   </div>
                   <div className="stock-warning-card__grid">
-                    <div>
+                    <button type="button" onClick={() => openStockModal("safe", "Aman", branch)}>
                       <CheckCircle2 size={16} />
                       <span>Aman</span>
                       <strong>{formatNumber(branch.stockResume.safeItems)}</strong>
-                    </div>
-                    <div>
+                    </button>
+                    <button type="button" onClick={() => openStockModal("limit", "Limit", branch)}>
                       <AlertTriangle size={16} />
                       <span>Limit</span>
                       <strong>{formatNumber(branch.stockResume.lowItems)}</strong>
-                    </div>
-                    <div>
+                    </button>
+                    <button type="button" onClick={() => openStockModal("empty", "Kosong", branch)}>
                       <PackageX size={16} />
                       <span>Kosong</span>
                       <strong>{formatNumber(branch.stockResume.emptyItems)}</strong>
-                    </div>
-                    <div>
+                    </button>
+                    <button type="button" onClick={() => openStockModal("expired", "Expired", branch)}>
                       <AlertTriangle size={16} />
                       <span>Expired</span>
                       <strong>{formatNumber(branch.stockResume.expiredItems)}</strong>
-                    </div>
+                    </button>
                   </div>
                 </article>
               ))}
@@ -507,6 +622,37 @@ export function DashboardRevenueClient({
           </div>
         </article>
       </section>
+      {stockModal ? (
+        <div className="stock-modal-backdrop" role="presentation" onClick={() => setStockModal(null)}>
+          <section className="stock-modal" role="dialog" aria-modal="true" aria-labelledby="stock-modal-title" onClick={(event) => event.stopPropagation()}>
+            <div className="stock-modal__header">
+              <div>
+                <span>{stockModal.branchName ?? "Semua cabang"}</span>
+                <h2 id="stock-modal-title">{stockModal.title}</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setStockModal(null)}>
+                Tutup
+              </button>
+            </div>
+            <div className="stock-modal__body">
+              {stockModalItems.length ? (
+                stockModalItems.slice(0, 80).map((item) => (
+                  <div className="stock-modal__row" key={`${item.branchName}-${item.code}-${item.name}`}>
+                    <div>
+                      <strong>{item.name}</strong>
+                      <span>{item.code} | {item.branchName}</span>
+                      <small>{item.meta}</small>
+                    </div>
+                    <b>{formatNumber(item.qty)}</b>
+                  </div>
+                ))
+              ) : (
+                <div className="empty-state">Tidak ada item untuk kategori ini.</div>
+              )}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }
