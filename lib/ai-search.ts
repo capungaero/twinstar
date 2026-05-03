@@ -161,6 +161,10 @@ function wantsSalesByBranch(query: string) {
   return /(?:penjualan|omzet|pendapatan).*(?:per|tiap|setiap)\s+cabang|(?:per|tiap|setiap)\s+cabang.*(?:penjualan|omzet|pendapatan)/i.test(query);
 }
 
+function wantsTopSellingProducts(query: string) {
+  return /(?:barang|produk|item).*(?:terlaris|paling\s+laku|sering\s+laku|paling\s+sering)|(?:terlaris|paling\s+laku|sering\s+laku).*(?:barang|produk|item)/i.test(query);
+}
+
 function isLogicOnlyQuery(query: string) {
   const normalized = normalize(query);
   return /^(logic|logika|menghitung|hitung|cara\s+hitung|cara\s+menghitung)$/i.test(normalized);
@@ -224,7 +228,30 @@ function formatSalesByBranch(sales: DashboardData["recentSales"]) {
   return rows.length ? `\nPenjualan per cabang:\n${rows.join("\n")}` : "";
 }
 
-function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly" | "visibleSales" | "visibleStock" | "visibleExpired" | "visibleBranches" | "totalResults" | "totalSales" | "totalProfit"> & { aggregateSales?: DashboardData["recentSales"] }) {
+function formatTopSellingProducts(sales: DashboardData["recentSales"]) {
+  const rows = Array.from(
+    sales.reduce((map, sale) => {
+      const key = sale.itemName || "Item tanpa nama";
+      const current = map.get(key) ?? { transactions: 0, total: 0, profit: 0 };
+      current.transactions += 1;
+      current.total += sale.total;
+      current.profit += sale.profit;
+      map.set(key, current);
+      return map;
+    }, new Map<string, { transactions: number; total: number; profit: number }>())
+  )
+    .sort((left, right) => right[1].transactions - left[1].transactions || right[1].total - left[1].total)
+    .slice(0, 8)
+    .map(([item, value], index) => `${index + 1}. ${item}: ${formatNumber(value.transactions)} transaksi, ${formatCurrency(value.total)}`);
+
+  return rows.length ? `Barang terlaris:\n${rows.join("\n")}` : "Tidak ada data penjualan yang cocok untuk menghitung barang terlaris.";
+}
+
+function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly" | "visibleSales" | "visibleStock" | "visibleExpired" | "visibleBranches" | "totalResults" | "totalSales" | "totalProfit"> & { aggregateSales?: DashboardData["recentSales"]; searchPlan?: GeminiSearchPlan | null }) {
+  if (wantsTopSellingProducts(result.query) || result.searchPlan?.mode === "reasoning") {
+    return formatTopSellingProducts(result.aggregateSales ?? []);
+  }
+
   if (result.summaryOnly && wantsProfitAggregate(result.query)) {
     return `Total laba yang cocok dengan pencarian ini adalah ${formatCurrency(result.totalProfit)} dari ${formatNumber(result.totalResults)} transaksi. Total penjualan terkait: ${formatCurrency(result.totalSales)}.`;
   }
@@ -253,11 +280,11 @@ function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly"
   return `Ditemukan ${formatNumber(result.totalResults)} hasil terkait: ${result.visibleSales.length} transaksi, ${result.visibleStock.length} data stok, ${result.visibleExpired.length} barang expired, dan ${result.visibleBranches.length} cabang. Total penjualan: ${formatCurrency(result.totalSales)}.`;
 }
 
-function buildGeminiDataSnapshot(data: DashboardData, query: string) {
+function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan = buildFallbackSearchPlan(query)) {
   const normalizedQuery = normalize(query);
   const branchFilter = getBranchCodeFilter(query);
   const salesWindowDays = getSalesWindowDays(query);
-  const queryTokens = extractSearchTerms(query, buildFallbackSearchPlan(query));
+  const queryTokens = extractSearchTerms(query, searchPlan);
   const stockSource = [...data.lowStockProducts, ...data.topStockProducts];
 
   const scoreText = (values: Array<string | number | null | undefined>) => scoreValues(queryTokens, values);
@@ -311,7 +338,9 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string) {
       normalizedQuery,
       branchFilter,
       salesWindowDays,
-      queryTokens
+      queryTokens,
+      searchMode: searchPlan.mode,
+      searchSummary: searchPlan.summary
     },
     candidates: {
       sales: candidateSales,
@@ -346,7 +375,8 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const wantsBranch = hasQuery && (searchPlan?.focus === "branch" || searchPlan?.focus === "mixed");
   const broadSearch = hasQuery && searchPlan?.focus === "mixed";
 
-  const aggregateSalesQuery = salesAggregate || wantsProfitAggregate(query) || wantsSalesByBranch(query);
+  const reasoningMode = searchPlan?.mode === "reasoning" || wantsTopSellingProducts(query);
+  const aggregateSalesQuery = salesAggregate || wantsProfitAggregate(query) || wantsSalesByBranch(query) || reasoningMode;
   const salesFilterSource = aggregateSalesQuery ? data.recentSales : salesSource;
   const matchedSales = hasQuery && !conversational
     ? salesFilterSource
@@ -410,7 +440,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         .map((match) => match.item)
     : [];
 
-  const allSales = wantsSales || broadSearch ? matchedSales : [];
+  const allSales = wantsSales || broadSearch || reasoningMode ? matchedSales : [];
   const allStock = wantsStock || broadSearch ? matchedStock : [];
   const allExpired = wantsExpired || broadSearch ? matchedExpired : [];
   const allBranches = wantsBranch || broadSearch ? matchedBranches : [];
@@ -434,10 +464,11 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         totalResults,
         totalSales,
         totalProfit,
-        aggregateSales: allSales
+        aggregateSales: allSales,
+        searchPlan
       })
       : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS.";
-  const geminiAnswer = hasQuery && useGeminiSearch ? await answerGeminiFromData(query, buildGeminiDataSnapshot(data, query)) : null;
+  const geminiAnswer = hasQuery && useGeminiSearch ? await answerGeminiFromData(query, buildGeminiDataSnapshot(data, query, searchPlan ?? undefined)) : null;
   const answerText = geminiAnswer?.answer ?? fallbackAnswerText;
   const finalTotalResults = geminiAnswer?.totalResults || totalResults;
   const finalTotalSales = geminiAnswer?.totalSales || totalSales;

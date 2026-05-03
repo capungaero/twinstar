@@ -1,7 +1,9 @@
 type SearchFocus = "sales" | "stock" | "expired" | "branch" | "mixed";
+type SearchMode = "direct" | "reasoning";
 
 export type GeminiSearchPlan = {
   focus: SearchFocus;
+  mode: SearchMode;
   keywords: string[];
   branchHints: string[];
   summary: string;
@@ -61,6 +63,10 @@ function normalizeFocus(value: unknown): SearchFocus {
   return "mixed";
 }
 
+function normalizeMode(value: unknown): SearchMode {
+  return value === "reasoning" ? "reasoning" : "direct";
+}
+
 async function generateGeminiContent(model: string, apiKey: string, prompt: string) {
   return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
     method: "POST",
@@ -95,11 +101,13 @@ export async function inferGeminiSearchPlan(query: string): Promise<GeminiSearch
   const prompt = [
     "You are a POS search planner.",
     "Analyze the user's query and return ONLY JSON with this shape:",
-    '{ "focus": "sales|stock|expired|branch|mixed", "keywords": ["..."], "branchHints": ["..."], "summary": "...", "confidence": 0.0 }',
+    '{ "focus": "sales|stock|expired|branch|mixed", "mode": "direct|reasoning", "keywords": ["..."], "branchHints": ["..."], "summary": "...", "confidence": 0.0 }',
     "Rules:",
+    "- mode direct means the query clearly asks for existing records or simple totals, for example: data penjualan payakumbuh, stok betadine, total penjualan cabang 10.",
+    "- mode reasoning means the query needs analysis before lookup, for example: barang terlaris di payakumbuh, cabang paling ramai, produk paling sering laku, performa terbaik.",
     "- keywords must be short search phrases that help find matching dashboard records.",
     "- branchHints should contain branch names or codes if the query implies a branch.",
-    "- summary should be one concise Indonesian sentence.",
+    "- summary should explain the interpreted search path in one concise Indonesian sentence.",
     "- confidence must be between 0 and 1.",
     `Query: ${query}`
   ].join("\n");
@@ -129,6 +137,7 @@ export async function inferGeminiSearchPlan(query: string): Promise<GeminiSearch
 
   return {
     focus: normalizeFocus(parsed.focus),
+    mode: normalizeMode(parsed.mode),
     keywords: normalizeArray(parsed.keywords, 8),
     branchHints: normalizeArray(parsed.branchHints, 4),
     summary: typeof parsed.summary === "string" && parsed.summary.trim() ? parsed.summary.trim() : "Gemini menafsirkan prompt ini sebagai pencarian data POS.",
@@ -148,6 +157,9 @@ export async function answerGeminiFromData(query: string, dataSnapshot: unknown)
     "Gunakan hanya angka dan item dari snapshot data. Jangan mengarang data di luar snapshot.",
     "Kalau user bertanya tentang stok, produk, cabang, expired, penjualan, omzet, laba, piutang, atau performa cabang, jawab dari snapshot.",
     "Kalau pertanyaan umum seperti 'siapa kamu?', jawab sebagai asisten AI minimarket tanpa menampilkan data snapshot.",
+    "Jika snapshot queryContext.searchMode bernilai direct, jawab langsung dari record atau total yang cocok.",
+    "Jika snapshot queryContext.searchMode bernilai reasoning, jelaskan hasil analisis singkat lalu beri kesimpulan dari data kandidat.",
+    "Untuk pertanyaan seperti barang terlaris, hitung dari data penjualan dan kelompokkan berdasarkan itemName sebelum menjawab.",
     "Kalau user meminta total atau ringkasan, jawab ringkas tanpa daftar item.",
     "Kalau user meminta daftar atau pencarian produk, tampilkan maksimal 6 item paling relevan saja.",
     "Format answer harus rapi untuk tampilan web: gunakan beberapa baris pendek, heading singkat seperti 'Ringkasan:', 'Penjualan:', 'Stok:', atau 'Expired:', lalu bullet dengan awalan '- '.",
@@ -203,8 +215,11 @@ export function buildFallbackSearchPlan(query: string): GeminiSearchPlan {
           ? "branch"
           : "mixed";
 
+  const mode: SearchMode = /terlaris|paling|terbaik|terburuk|ramai|sepi|laku|sering|ranking|peringkat|analisa|analisis|banding|performa/.test(normalizedQuery) ? "reasoning" : "direct";
+
   return {
     focus,
+    mode,
     keywords: terms,
     branchHints: terms.filter((term) => /c\d{2}/i.test(term) || /pekanbaru|dhamasraya|payakumbuh|tanjung|solok/i.test(term)),
     summary: "Pencarian lokal fallback dipakai untuk membaca prompt ini.",
