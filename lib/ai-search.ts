@@ -26,23 +26,32 @@ export type AiSearchResponse = {
 };
 
 function normalize(value: string) {
-  return value.toLowerCase().replace(/\bsctock\b/g, "stock").replace(/\s+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/\bsctock\b/g, "stock")
+    .replace(/\bmgnhibtung\b/g, "menghitung")
+    .replace(/\bmnghitung\b/g, "menghitung")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 const SEARCH_STOP_WORDS = new Set([
   "ai",
   "ambil",
   "barang",
-  "bintang",
-  "cabang",
+    "berapa",
+    "bintang",
+    "cabang",
   "cair",
   "cari",
   "cek",
   "data",
   "dan",
   "di",
-  "item",
-  "kembar",
+    "hitung",
+    "item",
+    "jumlah",
+    "kembar",
   "keuntungan",
   "laba",
   "limit",
@@ -97,11 +106,43 @@ function matchesBranch(branchCode: string | undefined, branchName: string | unde
   return branchCode === branchFilter || normalizedName.includes(`cabang ${branchNumber}`) || normalizedName.includes(`cabang ${branchFilter.slice(1)}`);
 }
 
+function getCharacterSimilarity(left: string, right: string) {
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  if (left.includes(right) || right.includes(left)) return 0.85;
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array(right.length + 1).fill(0);
+
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    current[0] = leftIndex;
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        previous[rightIndex] + 1,
+        current[rightIndex - 1] + 1,
+        previous[rightIndex - 1] + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1)
+      );
+    }
+    for (let index = 0; index <= right.length; index += 1) {
+      previous[index] = current[index];
+    }
+  }
+
+  return 1 - previous[right.length] / Math.max(left.length, right.length);
+}
+
 function scoreValues(terms: string[], values: Array<string | number | null | undefined>) {
   if (!terms.length) return 0;
 
   const text = normalize(values.map((value) => String(value ?? "")).join(" "));
-  return terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
+  const words = text.split(" ").filter(Boolean);
+
+  return terms.reduce((score, term) => {
+    if (text.includes(term)) return score + 1;
+
+    const fuzzyScore = words.reduce((best, word) => Math.max(best, getCharacterSimilarity(term, word)), 0);
+    return score + (fuzzyScore >= 0.72 ? fuzzyScore : 0);
+  }, 0);
 }
 
 function wantsSummaryOnly(query: string) {
@@ -118,19 +159,24 @@ function wantsProfitAggregate(query: string) {
 
 function isConversationalQuery(query: string) {
   const normalized = normalize(query);
-  return /^(siapa|apa)\s+(kamu|anda)|^(kamu|anda)\s+siapa|^help$|^bantuan$|^halo$|^hai$|^test$|^tes$/i.test(normalized);
+  return /(?:^|\b)(siapa|apa)\s+(kamu|anda)|(?:^|\b)(kamu|anda)\s+siapa|\b(logic|logika|menghitung|hitung)\b|^help$|^bantuan$|^halo$|^hai$|^test$|^tes$/i.test(normalized);
 }
 
 function buildConversationalAnswer(query: string) {
   const normalized = normalize(query);
   if (/siapa|kamu|anda/.test(normalized)) {
-    return "Saya Admin AI untuk dashboard POS. Kirim pertanyaan tentang penjualan, stok, cabang, produk expired, atau laba, nanti saya carikan dari database.";
+    return "Saya Admin AI untuk dashboard POS. Saya memakai pencarian hybrid: memahami bahasa natural, memperbaiki typo ringan, menghitung ringkasan, lalu mencocokkan data dari database.";
   }
 
-  return "Saya siap membantu pencarian data POS. Contoh: stok betadine cabang 10, total penjualan bulan ini, atau barang expired minggu ini.";
+  if (/logic|logika|menghitung|hitung/.test(normalized)) {
+    return "Saya memakai logika pencarian hybrid: query dipahami sebagai intent, keyword penting diekstrak, typo ringan dicocokkan secara fuzzy, hasil vektor dipadukan dengan filter database, lalu total penjualan atau laba dihitung dari data yang cocok.";
+  }
+
+  return "Saya siap membantu pencarian data POS dengan bahasa natural. Contoh: stok betadine cabang 10, total penjualan bulan ini, siapa kamu, atau hitung laba tahun ini.";
 }
 
 function getSalesWindowDays(query: string) {
+  if (/\b1\s*tahun|satu\s+tahun|tahun\s+ini|setahun|tahunan/i.test(query)) return 365;
   if (/\b2\s*bulan|dua\s+bulan/i.test(query)) return 60;
   if (/\b3\s*bulan|tiga\s+bulan/i.test(query)) return 90;
   if (/\b1\s*bulan|satu\s+bulan|bulan\s+terakhir/i.test(query)) return 30;
@@ -255,12 +301,13 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const useGeminiSearch = process.env.AI_SEARCH_GEMINI === "true";
   const searchPlan = hasQuery ? (useGeminiSearch ? (await inferGeminiSearchPlan(normalizedQuery)) ?? buildFallbackSearchPlan(normalizedQuery) : buildFallbackSearchPlan(normalizedQuery)) : null;
   const searchTerms = hasQuery ? extractSearchTerms(query, searchPlan) : [];
-  const effectiveQuery = searchTerms.join(" ");
-  const summaryOnly = wantsSummaryOnly(query) || wantsProfitAggregate(query);
+  const effectiveQuery = searchTerms.length ? searchTerms.join(" ") : normalizedQuery;
+  const salesAggregate = wantsSalesAggregate(query);
+  const summaryOnly = wantsSummaryOnly(query) || salesAggregate || wantsProfitAggregate(query);
   const salesWindowDays = getSalesWindowDays(query);
   const branchFilter = getBranchCodeFilter(query);
   const lowStockOnly = isLowStockQuery(query);
-  const vectorResults = hasQuery && !conversational ? getVectorSearchResults(data, effectiveQuery || query) : null;
+  const vectorResults = hasQuery && !conversational ? getVectorSearchResults(data, [normalizedQuery, effectiveQuery, searchPlan?.summary, ...(searchPlan?.keywords ?? [])].filter(Boolean).join(" ")) : null;
   const salesSource = vectorResults?.sales.length ? vectorResults.sales : data.recentSales;
   const stockSourceBase = vectorResults?.stock.length ? vectorResults.stock : [...data.lowStockProducts, ...data.topStockProducts];
   const expiredSource = vectorResults?.expired.length ? vectorResults.expired : data.expiringProducts;
@@ -291,7 +338,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
             sale.profit
           ])
         }))
-        .filter((match) => searchTerms.length === 0 || match.score > 0)
+        .filter((match) => searchTerms.length === 0 || match.score > 0 || broadSearch)
         .sort((a, b) => b.score - a.score || b.item.total - a.item.total)
         .map((match) => match.item)
     : [];
@@ -304,7 +351,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
           item: product,
           score: scoreValues(searchTerms, [product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price])
         }))
-        .filter((match) => searchTerms.length === 0 || match.score > 0)
+        .filter((match) => searchTerms.length === 0 || match.score > 0 || broadSearch)
         .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
         .map((match) => match.item)
     : [];
@@ -316,7 +363,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
           item: product,
           score: scoreValues(searchTerms, [product.code, product.branchName, product.name, product.status, product.expiredAt, product.stock])
         }))
-        .filter((match) => searchTerms.length === 0 || match.score > 0)
+        .filter((match) => searchTerms.length === 0 || match.score > 0 || broadSearch)
         .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
         .map((match) => match.item)
     : [];

@@ -42,7 +42,14 @@ function getDataIndexKey(data: DashboardData) {
 }
 
 function normalize(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/\bsctock\b/g, "stock")
+    .replace(/\bmgnhibtung\b/g, "menghitung")
+    .replace(/\bmnghitung\b/g, "menghitung")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function hashToken(token: string) {
@@ -103,22 +110,22 @@ function buildRecords(data: DashboardData): VectorRecord[] {
     ...data.recentSales.map((sale) => ({
       type: "sales" as const,
       item: sale,
-      text: ["penjualan transaksi omzet laba", sale.code, sale.branchCode, sale.branchName, sale.customer, sale.cashier, sale.itemName, sale.category, sale.paymentMethod, sale.status, sale.total, sale.profit].join(" ")
+      text: ["penjualan transaksi omzet laba pendapatan total jumlah berapa hitung menghitung laporan keuangan", sale.code, sale.branchCode, sale.branchName, sale.customer, sale.cashier, sale.itemName, sale.category, sale.paymentMethod, sale.status, sale.total, sale.profit].join(" ")
     })),
     ...stockProducts.map((product) => ({
       type: "stock" as const,
       item: product,
-      text: ["stok stock barang produk", product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price].join(" ")
+      text: ["stok stock barang produk item persediaan limit kosong tersedia harga cari tampilkan", product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price].join(" ")
     })),
     ...data.expiringProducts.map((product) => ({
       type: "expired" as const,
       item: product,
-      text: ["expired kadaluarsa kedaluwarsa fefo", product.code, product.branchName, product.name, product.status, product.expiredAt, product.stock].join(" ")
+      text: ["expired expire kadaluarsa kedaluwarsa fefo masa berlaku mendekati habis", product.code, product.branchName, product.name, product.status, product.expiredAt, product.stock].join(" ")
     })),
     ...data.branchSummaries.map((branch) => ({
       type: "branch" as const,
       item: branch,
-      text: ["cabang toko outlet", branch.code, branch.name, branch.status, branch.topProduct, branch.transactions, branch.monthSales].join(" ")
+      text: ["cabang toko outlet lokasi gerai performa transaksi penjualan omzet status", branch.code, branch.name, branch.status, branch.topProduct, branch.transactions, branch.monthSales].join(" ")
     }))
   ];
 }
