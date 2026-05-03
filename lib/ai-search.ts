@@ -252,7 +252,8 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const normalizedQuery = normalize(query);
   const hasQuery = normalizedQuery.length > 0;
   const conversational = hasQuery && isConversationalQuery(query);
-  const searchPlan = hasQuery ? (await inferGeminiSearchPlan(normalizedQuery)) ?? buildFallbackSearchPlan(normalizedQuery) : null;
+  const useGeminiSearch = process.env.AI_SEARCH_GEMINI === "true";
+  const searchPlan = hasQuery ? (useGeminiSearch ? (await inferGeminiSearchPlan(normalizedQuery)) ?? buildFallbackSearchPlan(normalizedQuery) : buildFallbackSearchPlan(normalizedQuery)) : null;
   const searchTerms = hasQuery ? extractSearchTerms(query, searchPlan) : [];
   const effectiveQuery = searchTerms.join(" ");
   const summaryOnly = wantsSummaryOnly(query) || wantsProfitAggregate(query);
@@ -358,7 +359,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         totalProfit
       })
       : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS.";
-  const geminiAnswer = hasQuery ? await answerGeminiFromData(query, buildGeminiDataSnapshot(data, query)) : null;
+  const geminiAnswer = hasQuery && useGeminiSearch ? await answerGeminiFromData(query, buildGeminiDataSnapshot(data, query)) : null;
   const answerText = geminiAnswer?.answer ?? fallbackAnswerText;
   const finalTotalResults = geminiAnswer?.totalResults || totalResults;
   const finalTotalSales = geminiAnswer?.totalSales || totalSales;
