@@ -1,7 +1,7 @@
 import { Bot, Boxes, Building2, Database, ReceiptText, Search, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
+import { buildAiSearchResponse } from "@/lib/ai-search";
 import { getProductCategory } from "@/lib/filters";
-import { getDashboardData } from "@/lib/legacy-db";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -50,98 +50,19 @@ function Sidebar() {
   );
 }
 
-function normalize(value: string) {
-  return value.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-function scoreValues(query: string, values: Array<string | number | null | undefined>) {
-  const terms = normalize(query).split(" ").filter(Boolean);
-  if (!terms.length) return 0;
-
-  const text = normalize(values.map((value) => String(value ?? "")).join(" "));
-  return terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
-}
-
 export default async function PencarianAiPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const data = await getDashboardData();
   const query = params?.q?.trim() ?? "";
-  const normalizedQuery = normalize(query);
-  const hasQuery = normalizedQuery.length > 0;
-  const wantsSales = /jual|penjualan|transaksi|faktur|omzet|pendapatan|laba|pelanggan/.test(normalizedQuery);
-  const wantsStock = /stok|stock|barang|produk|item|limit|kosong/.test(normalizedQuery);
-  const wantsExpired = /expire|expired|kadaluarsa|kedaluwarsa|fefo/.test(normalizedQuery);
-  const wantsBranch = /cabang|toko|bintang|pekanbaru|dhamasraya|payakumbuh|tanjung|solok/.test(normalizedQuery);
-  const broadSearch = !wantsSales && !wantsStock && !wantsExpired && !wantsBranch;
-
-  const salesMatches = hasQuery
-    ? data.recentSales
-        .map((sale) => ({
-          item: sale,
-          score: scoreValues(query, [
-            sale.code,
-            sale.branchCode,
-            sale.branchName,
-            sale.customer,
-            sale.cashier,
-            sale.itemName,
-            sale.category,
-            sale.paymentMethod,
-            sale.status,
-            sale.total,
-            sale.profit
-          ])
-        }))
-        .filter((match) => match.score > 0 || wantsSales)
-        .sort((a, b) => b.score - a.score || b.item.total - a.item.total)
-        .slice(0, 12)
-        .map((match) => match.item)
-    : [];
-
-  const stockSource = [...data.lowStockProducts, ...data.topStockProducts];
-  const stockMatches = hasQuery
-    ? stockSource
-        .map((product) => ({
-          item: product,
-          score: scoreValues(query, [product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price])
-        }))
-        .filter((match) => match.score > 0 || wantsStock)
-        .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
-        .slice(0, 12)
-        .map((match) => match.item)
-    : [];
-
-  const expiredMatches = hasQuery
-    ? data.expiringProducts
-        .map((product) => ({
-          item: product,
-          score: scoreValues(query, [product.code, product.branchName, product.name, product.status, product.expiredAt, product.stock])
-        }))
-        .filter((match) => match.score > 0 || wantsExpired)
-        .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
-        .slice(0, 10)
-        .map((match) => match.item)
-    : [];
-
-  const branchMatches = hasQuery
-    ? data.branchSummaries
-        .map((branch) => ({
-          item: branch,
-          score: scoreValues(query, [branch.code, branch.name, branch.status, branch.topProduct, branch.transactions, branch.monthSales])
-        }))
-        .filter((match) => match.score > 0 || wantsBranch)
-        .sort((a, b) => b.score - a.score || b.item.monthSales - a.item.monthSales)
-        .slice(0, 10)
-        .map((match) => match.item)
-    : [];
-
-  const visibleSales = wantsSales || broadSearch ? salesMatches : [];
-  const visibleStock = wantsStock || broadSearch ? stockMatches : [];
-  const visibleExpired = wantsExpired || broadSearch ? expiredMatches : [];
-  const visibleBranches = wantsBranch || broadSearch ? branchMatches : [];
-  const totalResults = visibleSales.length + visibleStock.length + visibleExpired.length + visibleBranches.length;
-  const totalSales = visibleSales.reduce((sum, sale) => sum + sale.total, 0);
-  const totalProfit = visibleSales.reduce((sum, sale) => sum + sale.profit, 0);
+  const searchResult = query ? await buildAiSearchResponse(query) : null;
+  const hasQuery = Boolean(searchResult);
+  const searchPlan = searchResult?.searchPlan ?? null;
+  const visibleSales = searchResult?.visibleSales ?? [];
+  const visibleStock = searchResult?.visibleStock ?? [];
+  const visibleExpired = searchResult?.visibleExpired ?? [];
+  const visibleBranches = searchResult?.visibleBranches ?? [];
+  const totalResults = searchResult?.totalResults ?? 0;
+  const totalSales = searchResult?.totalSales ?? 0;
+  const totalProfit = searchResult?.totalProfit ?? 0;
   const hasResults = totalResults > 0;
 
   return (
@@ -151,7 +72,7 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
         <section className="ai-hero">
           <span className="eyebrow">Pencarian AI Database POS</span>
           <h1>Cari data seperti bertanya ke asisten</h1>
-          <p>Masukkan prompt bebas untuk mencari transaksi, cabang, stok, produk expired, pelanggan, atau kategori dari data dummy internal.</p>
+          <p>Masukkan prompt bebas untuk mencari transaksi, cabang, stok, produk expired, pelanggan, atau kategori dari data dummy internal. Gemini membantu menerjemahkan prompt ke kata kunci pencarian.</p>
         </section>
 
         <section className="ai-search-panel">
@@ -193,9 +114,10 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
               </strong>
               <p>
                 {hasQuery
-                  ? `AI menemukan ${visibleSales.length} transaksi, ${visibleStock.length} data stok, ${visibleExpired.length} barang expired, dan ${visibleBranches.length} cabang. Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`
+                  ? `${searchResult?.searchPlan?.summary ?? "Pencarian lokal membantu memahami prompt ini."} AI menemukan ${visibleSales.length} transaksi, ${visibleStock.length} data stok, ${visibleExpired.length} barang expired, dan ${visibleBranches.length} cabang. Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`
                   : "Data tidak ditampilkan sebelum ada prompt. Ketik pertanyaan seperti pencarian Google untuk melihat hasil dari dummy data internal."}
               </p>
+              {hasQuery && searchPlan ? <p>Kata kunci AI: {searchPlan.keywords.join(", ") || "-"}.</p> : null}
             </div>
           </div>
 
