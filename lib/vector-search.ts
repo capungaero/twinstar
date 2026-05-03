@@ -85,6 +85,25 @@ function embed(text: string) {
   return vector;
 }
 
+function getProductSemanticText(name: string) {
+  const value = normalize(name);
+  const aliases: string[] = [];
+
+  if (value.includes("betadine")) aliases.push("obat luka antiseptik luka cair pembersih luka povidone iodine");
+  if (value.includes("obat batuk") || value.includes("komix")) aliases.push("batuk flu tenggorokan masuk angin");
+  if (value.includes("vitamin")) aliases.push("suplemen daya tahan tubuh sehat");
+  if (value.includes("balsem")) aliases.push("pegal nyeri gosok hangat masuk angin");
+  if (value.includes("minyak kayu putih") || value.includes("minyak gosok")) aliases.push("minyak obat gosok hangat masuk angin pegal");
+  if (value.includes("masker")) aliases.push("pelindung wajah kesehatan medis");
+  if (value.includes("sabun")) aliases.push("cuci bersih pembersih");
+  if (value.includes("lampu")) aliases.push("penerangan listrik led elektronik");
+  if (value.includes("battery") || value.includes("baterai") || value.includes("alkaline")) aliases.push("baterai batre daya elektronik");
+  if (value.includes("tempat air")) aliases.push("botol wadah minum galon rumah tangga");
+  if (value.includes("mie") || value.includes("biskuit") || value.includes("susu") || value.includes("kopi")) aliases.push("makanan minuman konsumsi");
+
+  return aliases.join(" ");
+}
+
 function cosineSimilarity(left: Map<number, number>, right: Map<number, number>) {
   let dot = 0;
   let leftNorm = 0;
@@ -115,7 +134,7 @@ function buildRecords(data: DashboardData): VectorRecord[] {
     ...stockProducts.map((product) => ({
       type: "stock" as const,
       item: product,
-      text: ["stok stock barang produk item persediaan limit kosong tersedia harga cari tampilkan", product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price].join(" ")
+      text: ["stok stock barang produk item persediaan limit kosong tersedia ready ada harga cari tampilkan", product.code, product.branchName, product.name, getProductCategory(product.name), getProductSemanticText(product.name), product.stock, product.price].join(" ")
     })),
     ...data.expiringProducts.map((product) => ({
       type: "expired" as const,

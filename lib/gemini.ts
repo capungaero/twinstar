@@ -15,6 +15,12 @@ export type GeminiDataAnswer = {
   totalResults: number;
   totalSales: number;
   totalProfit: number;
+  resultKeys: {
+    sales: string[];
+    stock: string[];
+    expired: string[];
+    branches: string[];
+  };
 };
 
 function getGeminiKey() {
@@ -47,12 +53,28 @@ function getGeminiModels() {
   return Array.from(new Set([configuredModel, "gemini-2.5-flash", "gemini-flash-latest"].filter(Boolean))) as string[];
 }
 
+function getGeminiTimeoutMs() {
+  const configuredTimeout = Number(process.env.GEMINI_TIMEOUT_MS ?? 8000);
+  return Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 8000;
+}
+
 function normalizeArray(values: unknown, limit: number) {
   if (!Array.isArray(values)) return [];
   return values
     .map((value) => (typeof value === "string" ? value.trim() : ""))
     .filter(Boolean)
     .slice(0, limit);
+}
+
+function normalizeResultKeys(value: unknown): GeminiDataAnswer["resultKeys"] {
+  const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
+
+  return {
+    sales: normalizeArray(source.sales, 24),
+    stock: normalizeArray(source.stock, 24),
+    expired: normalizeArray(source.expired, 16),
+    branches: normalizeArray(source.branches, 16)
+  };
 }
 
 function normalizeFocus(value: unknown): SearchFocus {
@@ -68,27 +90,35 @@ function normalizeMode(value: unknown): SearchMode {
 }
 
 async function generateGeminiContent(model: string, apiKey: string, prompt: string) {
-  return fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), getGeminiTimeoutMs());
+
+  try {
+    return await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [
+            {
+              text: "Return valid JSON only. Do not wrap the JSON in markdown fences or add extra commentary."
+            }
+          ]
+        },
+        contents: [
           {
-            text: "Return valid JSON only. Do not wrap the JSON in markdown fences or add extra commentary."
+            role: "user",
+            parts: [{ text: prompt }]
           }
         ]
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }]
-        }
-      ]
-    })
-  });
+      })
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function inferGeminiSearchPlan(query: string): Promise<GeminiSearchPlan | null> {
@@ -114,8 +144,8 @@ export async function inferGeminiSearchPlan(query: string): Promise<GeminiSearch
 
   let response: Response | null = null;
   for (const model of models) {
-    response = await generateGeminiContent(model, apiKey, prompt);
-    if (response.ok) {
+    response = await generateGeminiContent(model, apiKey, prompt).catch(() => null);
+    if (response?.ok) {
       break;
     }
   }
@@ -160,20 +190,23 @@ export async function answerGeminiFromData(query: string, dataSnapshot: unknown)
     "Jika snapshot queryContext.searchMode bernilai direct, jawab langsung dari record atau total yang cocok.",
     "Jika snapshot queryContext.searchMode bernilai reasoning, jelaskan hasil analisis singkat lalu beri kesimpulan dari data kandidat.",
     "Untuk pertanyaan seperti barang terlaris, hitung dari data penjualan dan kelompokkan berdasarkan itemName sebelum menjawab.",
+    "Untuk pencarian stok natural, pakai makna pertanyaan untuk memilih record dari databaseIndex.stock. Contoh: 'obat luka' cocok dengan antiseptik seperti BETADINE, bukan obat batuk.",
+    "Jangan memilih record hanya karena kategorinya sama jika fungsi produknya tidak sesuai pertanyaan user.",
+    "Isi resultKeys dengan searchKey dari record databaseIndex yang benar-benar cocok untuk ditampilkan UI. Jika tidak ada yang cocok, pakai array kosong.",
     "Kalau user meminta total atau ringkasan, jawab ringkas tanpa daftar item.",
     "Kalau user meminta daftar atau pencarian produk, tampilkan maksimal 6 item paling relevan saja.",
     "Format answer harus rapi untuk tampilan web: gunakan beberapa baris pendek, heading singkat seperti 'Ringkasan:', 'Penjualan:', 'Stok:', atau 'Expired:', lalu bullet dengan awalan '- '.",
     "Jangan tulis semua hasil dalam satu paragraf panjang. Jangan ulangi data yang sudah ada di daftar hasil UI.",
     "Return ONLY JSON with this shape:",
-    '{ "answer": "jawaban natural tanpa heading template", "totalResults": 0, "totalSales": 0, "totalProfit": 0 }',
+    '{ "answer": "jawaban natural tanpa heading template", "totalResults": 0, "totalSales": 0, "totalProfit": 0, "resultKeys": { "sales": ["..."], "stock": ["..."], "expired": ["..."], "branches": ["..."] } }',
     `Pertanyaan user: ${query}`,
     `Snapshot data POS JSON: ${JSON.stringify(dataSnapshot)}`
   ].join("\n");
 
   let response: Response | null = null;
   for (const model of getGeminiModels()) {
-    response = await generateGeminiContent(model, apiKey, prompt);
-    if (response.ok) {
+    response = await generateGeminiContent(model, apiKey, prompt).catch(() => null);
+    if (response?.ok) {
       break;
     }
   }
@@ -198,20 +231,26 @@ export async function answerGeminiFromData(query: string, dataSnapshot: unknown)
     answer,
     totalResults: normalizeNumber(parsed?.totalResults),
     totalSales: normalizeNumber(parsed?.totalSales),
-    totalProfit: normalizeNumber(parsed?.totalProfit)
+    totalProfit: normalizeNumber(parsed?.totalProfit),
+    resultKeys: normalizeResultKeys(parsed?.resultKeys)
   };
 }
 
 export function buildFallbackSearchPlan(query: string): GeminiSearchPlan {
   const normalizedQuery = query.toLowerCase();
   const terms = normalizedQuery.split(/\s+/).filter(Boolean).slice(0, 8);
-  const focus: SearchFocus = /jual|penjualan|transaksi|faktur|omzet|pendapatan|laba|pelanggan/.test(normalizedQuery)
-    ? "sales"
-    : /stok|stock|barang|produk|item|limit|kosong/.test(normalizedQuery)
-      ? "stock"
-      : /expire|expired|kadaluarsa|kedaluwarsa|fefo/.test(normalizedQuery)
-        ? "expired"
-        : /cabang|toko|bintang|pekanbaru|dhamasraya|payakumbuh|tanjung|solok/.test(normalizedQuery)
+  const expiredIntent = /expire|expired|kadaluarsa|kedaluwarsa|fefo|masa\s+berlaku/.test(normalizedQuery);
+  const topSellingIntent = /terlaris|paling\s+laku|sering\s+laku|paling\s+sering/.test(normalizedQuery);
+  const salesIntent = /jual|penjualan|transaksi|faktur|omzet|pendapatan|laba|pelanggan/.test(normalizedQuery) || topSellingIntent;
+  const stockIntent = /stok|stock|barang|produk|item|limit|kosong|habis|tersedia|ready|\bada\b|harga|obat|vitamin|balsem|betadine|luka|batuk|minyak|masker|sabun|lampu|baterai|battery/.test(normalizedQuery);
+  const branchIntent = /cabang|toko|bintang|pekanbaru|dhamasraya|payakumbuh|tanjung|solok/.test(normalizedQuery);
+  const focus: SearchFocus = expiredIntent
+    ? "expired"
+    : salesIntent
+      ? "sales"
+      : stockIntent
+        ? "stock"
+        : branchIntent
           ? "branch"
           : "mixed";
 

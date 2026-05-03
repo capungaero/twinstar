@@ -6,6 +6,7 @@ import { getVectorSearchResults } from "@/lib/vector-search";
 
 type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
 type StockItem = DashboardData["lowStockProducts"][number] | DashboardData["topStockProducts"][number];
+type GeminiResultKeys = NonNullable<Awaited<ReturnType<typeof answerGeminiFromData>>>["resultKeys"];
 
 export type AiSearchResponse = {
   query: string;
@@ -86,6 +87,25 @@ function extractSearchTerms(query: string, searchPlan: GeminiSearchPlan | null) 
   ).slice(0, 8);
 }
 
+function getProductSemanticText(name: string) {
+  const value = normalize(name);
+  const aliases: string[] = [];
+
+  if (value.includes("betadine")) aliases.push("obat luka antiseptik luka cair pembersih luka povidone iodine");
+  if (value.includes("obat batuk") || value.includes("komix")) aliases.push("batuk flu tenggorokan masuk angin");
+  if (value.includes("vitamin")) aliases.push("suplemen daya tahan tubuh sehat");
+  if (value.includes("balsem")) aliases.push("pegal nyeri gosok hangat masuk angin");
+  if (value.includes("minyak kayu putih") || value.includes("minyak gosok")) aliases.push("minyak obat gosok hangat masuk angin pegal");
+  if (value.includes("masker")) aliases.push("pelindung wajah kesehatan medis");
+  if (value.includes("sabun")) aliases.push("cuci bersih pembersih");
+  if (value.includes("lampu")) aliases.push("penerangan listrik led elektronik");
+  if (value.includes("battery") || value.includes("baterai") || value.includes("alkaline")) aliases.push("baterai batre daya elektronik");
+  if (value.includes("tempat air")) aliases.push("botol wadah minum galon rumah tangga");
+  if (value.includes("mie") || value.includes("biskuit") || value.includes("susu") || value.includes("kopi")) aliases.push("makanan minuman konsumsi");
+
+  return aliases.join(" ");
+}
+
 function getBranchCodeFilter(query: string) {
   const normalized = normalize(query);
   const match = normalized.match(/\bc(?:abang)?\s*0?(\d{1,2})\b/) ?? normalized.match(/\bc(0?\d{1,2})\b/);
@@ -94,8 +114,29 @@ function getBranchCodeFilter(query: string) {
   return `C${match[1].padStart(2, "0")}`;
 }
 
+function getStockKey(product: StockItem) {
+  return normalize(["stock", product.branchName, product.code, product.name].join(" "));
+}
+
+function getExpiredKey(product: DashboardData["expiringProducts"][number]) {
+  return normalize(["expired", product.branchName, product.code, product.expiredAt, product.name].join(" "));
+}
+
+function getSaleKey(sale: DashboardData["recentSales"][number]) {
+  return normalize(["sale", sale.branchCode, sale.code, sale.date, sale.itemName].join(" "));
+}
+
+function getBranchKey(branch: DashboardData["branchSummaries"][number]) {
+  return normalize(["branch", branch.code, branch.name].join(" "));
+}
+
 function isLowStockQuery(query: string) {
   return /stok\s+limit|stock\s+limit|limit\s+stok|limit\s+stock|stok\s+kosong|stock\s+kosong/i.test(normalize(query));
+}
+
+function wantsAvailableStock(query: string) {
+  const normalized = normalize(query);
+  return /\b(?:apakah\s+)?ada\b|\btersedia\b|\bready\b|\bdalam\s+sto(?:c)?k\b/.test(normalized) && !/\bkosong\b|\bhabis\b|\bnol\b|0\s+stok/.test(normalized);
 }
 
 function matchesBranch(branchCode: string | undefined, branchName: string | undefined, branchFilter: string | null) {
@@ -163,6 +204,33 @@ function wantsSalesByBranch(query: string) {
 
 function wantsTopSellingProducts(query: string) {
   return /(?:barang|produk|item).*(?:terlaris|paling\s+laku|sering\s+laku|paling\s+sering)|(?:terlaris|paling\s+laku|sering\s+laku).*(?:barang|produk|item)/i.test(query);
+}
+
+function hasExpiredIntent(query: string) {
+  return /expire|expired|kadaluarsa|kedaluwarsa|fefo|masa\s+berlaku/i.test(query);
+}
+
+function hasStockIntent(query: string) {
+  const normalized = normalize(query);
+  return /stok|stock|barang|produk|item|persediaan|tersedia|ready|ada|habis|kosong|harga|obat|vitamin|balsem|betadine|luka|batuk|minyak|masker|sabun|lampu|baterai|battery/i.test(normalized);
+}
+
+function refineSearchPlan(query: string, searchPlan: GeminiSearchPlan | null) {
+  if (!searchPlan) return searchPlan;
+
+  if (hasExpiredIntent(query)) {
+    return { ...searchPlan, focus: "expired" as const };
+  }
+
+  if (wantsTopSellingProducts(query)) {
+    return { ...searchPlan, focus: "sales" as const, mode: "reasoning" as const };
+  }
+
+  if (hasStockIntent(query) && searchPlan.focus === "branch") {
+    return { ...searchPlan, focus: "stock" as const };
+  }
+
+  return searchPlan;
 }
 
 function isLogicOnlyQuery(query: string) {
@@ -286,54 +354,68 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
   const salesWindowDays = getSalesWindowDays(query);
   const queryTokens = extractSearchTerms(query, searchPlan);
   const stockSource = [...data.lowStockProducts, ...data.topStockProducts];
-
-  const scoreText = (values: Array<string | number | null | undefined>) => scoreValues(queryTokens, values);
+  const includeSales = searchPlan.focus === "sales" || searchPlan.focus === "mixed" || searchPlan.mode === "reasoning";
+  const includeStock = searchPlan.focus === "stock" || searchPlan.focus === "mixed";
+  const includeExpired = searchPlan.focus === "expired" || searchPlan.focus === "mixed";
+  const includeBranches = searchPlan.focus === "branch" || searchPlan.focus === "mixed";
+  const availableStockOnly = includeStock && wantsAvailableStock(query);
   const filterBranch = (branchName?: string, branchCode?: string) => matchesBranch(branchCode, branchName, branchFilter);
-  const stripScore = <T extends { _score: number }>(item: T) => {
-    const { _score: _removed, ...rest } = item;
-    void _removed;
-    return rest;
-  };
 
-  const candidateSales = data.recentSales
+  const databaseStock = includeStock ? stockSource
+    .filter((product) => filterBranch(product.branchName))
+    .filter((product) => !availableStockOnly || product.stock > 0)
+    .map((product) => ({
+      searchKey: getStockKey(product),
+      code: product.code,
+      name: product.name,
+      branchName: product.branchName,
+      category: getProductCategory(product.name),
+      stock: product.stock,
+      price: product.price
+    })) : [];
+
+  const databaseSales = includeSales ? data.recentSales
     .filter((sale) => (salesWindowDays ? isWithinLastDays(sale.date, salesWindowDays) : true))
     .filter((sale) => filterBranch(sale.branchName, sale.branchCode))
     .map((sale) => ({
-      ...sale,
-      _score: scoreText([sale.code, sale.branchCode, sale.branchName, sale.customer, sale.cashier, sale.itemName, sale.category, sale.paymentMethod, sale.status])
-    }))
-    .filter((sale) => queryTokens.length === 0 || sale._score > 0 || /penjualan|omzet|laba|keuntungan|profit|transaksi|tahun|bulan|total/i.test(normalizedQuery))
-    .sort((a, b) => b._score - a._score || b.total - a.total)
-    .slice(0, 80)
-    .map(stripScore);
+      searchKey: getSaleKey(sale),
+      code: sale.code,
+      date: sale.date,
+      branchCode: sale.branchCode,
+      branchName: sale.branchName,
+      itemName: sale.itemName,
+      category: sale.category,
+      quantity: sale.quantity,
+      total: sale.total,
+      profit: sale.profit,
+      customer: sale.customer,
+      status: sale.status
+    })) : [];
 
-  const candidateStock = stockSource
+  const databaseExpired = includeExpired ? data.expiringProducts
     .filter((product) => filterBranch(product.branchName))
     .map((product) => ({
-      ...product,
-      category: getProductCategory(product.name),
-      _score: scoreText([product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price])
-    }))
-    .filter((product) => queryTokens.length === 0 || product._score > 0 || /stok|stock|barang|produk|item/i.test(normalizedQuery))
-    .sort((a, b) => b._score - a._score || a.stock - b.stock)
-    .slice(0, 80)
-    .map(stripScore);
+      searchKey: getExpiredKey(product),
+      code: product.code,
+      name: product.name,
+      branchName: product.branchName,
+      expiredAt: product.expiredAt,
+      status: product.status,
+      stock: product.stock
+    })) : [];
 
-  const candidateExpired = data.expiringProducts
-    .filter((product) => filterBranch(product.branchName))
-    .map((product) => ({
-      ...product,
-      _score: scoreText([product.code, product.branchName, product.name, product.status, product.expiredAt, product.stock])
-    }))
-    .filter((product) => queryTokens.length === 0 || product._score > 0 || /expired|expire|kedaluwarsa|kadaluarsa/i.test(normalizedQuery))
-    .sort((a, b) => b._score - a._score || a.stock - b.stock)
-    .slice(0, 50)
-    .map(stripScore);
+  const databaseBranches = includeBranches ? data.branchSummaries.map((branch) => ({
+    searchKey: getBranchKey(branch),
+    code: branch.code,
+    name: branch.name,
+    status: branch.status,
+    transactions: branch.transactions,
+    monthSales: branch.monthSales,
+    stockLimit: branch.stockLimit,
+    topProduct: branch.topProduct
+  })) : [];
 
   return {
-    generatedAt: data.generatedAt,
-    summary: data.summary,
-    branchSummaries: data.branchSummaries,
     queryContext: {
       normalizedQuery,
       branchFilter,
@@ -342,11 +424,40 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
       searchMode: searchPlan.mode,
       searchSummary: searchPlan.summary
     },
-    candidates: {
-      sales: candidateSales,
-      stock: candidateStock,
-      expired: candidateExpired
+    databaseIndex: {
+      sales: databaseSales,
+      stock: databaseStock,
+      expired: databaseExpired,
+      branches: databaseBranches
     }
+  };
+}
+
+function resolveGeminiSelection(data: DashboardData, resultKeys: GeminiResultKeys | undefined) {
+  if (!resultKeys) return null;
+
+  const salesKeys = new Set(resultKeys.sales.map(normalize));
+  const stockKeys = new Set(resultKeys.stock.map(normalize));
+  const expiredKeys = new Set(resultKeys.expired.map(normalize));
+  const branchKeys = new Set(resultKeys.branches.map(normalize));
+  const hasSelection = salesKeys.size > 0 || stockKeys.size > 0 || expiredKeys.size > 0 || branchKeys.size > 0;
+
+  if (!hasSelection) {
+    return {
+      sales: [] as DashboardData["recentSales"],
+      stock: [] as StockItem[],
+      expired: [] as DashboardData["expiringProducts"],
+      branches: [] as DashboardData["branchSummaries"]
+    };
+  }
+
+  const stockSource = [...data.lowStockProducts, ...data.topStockProducts];
+
+  return {
+    sales: data.recentSales.filter((sale) => salesKeys.has(getSaleKey(sale))),
+    stock: stockSource.filter((product) => stockKeys.has(getStockKey(product))),
+    expired: data.expiringProducts.filter((product) => expiredKeys.has(getExpiredKey(product))),
+    branches: data.branchSummaries.filter((branch) => branchKeys.has(getBranchKey(branch)))
   };
 }
 
@@ -355,8 +466,13 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const normalizedQuery = normalize(query);
   const hasQuery = normalizedQuery.length > 0;
   const conversational = hasQuery && isConversationalQuery(query);
-  const useGeminiSearch = process.env.AI_SEARCH_GEMINI === "true";
-  const searchPlan = hasQuery ? (useGeminiSearch ? (await inferGeminiSearchPlan(normalizedQuery)) ?? buildFallbackSearchPlan(normalizedQuery) : buildFallbackSearchPlan(normalizedQuery)) : null;
+  const useGeminiSearch = Boolean(process.env.GEMINI_API_KEY?.trim()) && process.env.AI_SEARCH_GEMINI !== "false";
+  const searchPlan = hasQuery
+    ? refineSearchPlan(
+      query,
+      useGeminiSearch ? (await inferGeminiSearchPlan(normalizedQuery)) ?? buildFallbackSearchPlan(normalizedQuery) : buildFallbackSearchPlan(normalizedQuery)
+    )
+    : null;
   const searchTerms = hasQuery ? extractSearchTerms(query, searchPlan) : [];
   const effectiveQuery = searchTerms.length ? searchTerms.join(" ") : normalizedQuery;
   const salesAggregate = wantsSalesAggregate(query);
@@ -409,7 +525,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         .filter((product) => matchesBranch(undefined, product.branchName, branchFilter))
         .map((product) => ({
           item: product,
-          score: scoreValues(searchTerms, [product.code, product.branchName, product.name, getProductCategory(product.name), product.stock, product.price])
+          score: scoreValues(searchTerms, [product.code, product.branchName, product.name, getProductCategory(product.name), getProductSemanticText(product.name), product.stock, product.price])
         }))
         .filter((match) => searchTerms.length === 0 || match.score > 0 || broadSearch)
         .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
@@ -469,10 +585,26 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
       })
       : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS.";
   const geminiAnswer = hasQuery && useGeminiSearch ? await answerGeminiFromData(query, buildGeminiDataSnapshot(data, query, searchPlan ?? undefined)) : null;
+  const geminiSelection = geminiAnswer ? resolveGeminiSelection(data, geminiAnswer.resultKeys) : null;
+  const finalVisibleSales = geminiSelection ? geminiSelection.sales.slice(0, 12) : filteredSales;
+  const finalVisibleStock = geminiSelection ? geminiSelection.stock.slice(0, 12) : filteredStock;
+  const finalVisibleExpired = geminiSelection ? geminiSelection.expired.slice(0, 10) : filteredExpired;
+  const finalVisibleBranches = geminiSelection ? geminiSelection.branches.slice(0, 10) : filteredBranches;
+  const geminiSelectedTotalResults = geminiSelection
+    ? geminiSelection.sales.length + geminiSelection.stock.length + geminiSelection.expired.length + geminiSelection.branches.length
+    : 0;
+  const geminiSelectedTotalSales = geminiSelection ? geminiSelection.sales.reduce((sum, sale) => sum + sale.total, 0) : 0;
+  const geminiSelectedTotalProfit = geminiSelection ? geminiSelection.sales.reduce((sum, sale) => sum + sale.profit, 0) : 0;
   const answerText = geminiAnswer?.answer ?? fallbackAnswerText;
-  const finalTotalResults = geminiAnswer?.totalResults || totalResults;
-  const finalTotalSales = geminiAnswer?.totalSales || totalSales;
-  const finalTotalProfit = geminiAnswer?.totalProfit || totalProfit;
+  const finalTotalResults = geminiAnswer
+    ? Math.max(geminiAnswer.totalResults, geminiSelectedTotalResults)
+    : totalResults;
+  const finalTotalSales = geminiAnswer
+    ? (geminiAnswer.totalSales || geminiSelectedTotalSales)
+    : totalSales;
+  const finalTotalProfit = geminiAnswer
+    ? (geminiAnswer.totalProfit || geminiSelectedTotalProfit)
+    : totalProfit;
 
   const response: AiSearchResponse = {
     query,
@@ -482,10 +614,10 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
     summaryOnly,
     conversational,
     answerText,
-    visibleSales: filteredSales,
-    visibleStock: filteredStock,
-    visibleExpired: filteredExpired,
-    visibleBranches: filteredBranches,
+    visibleSales: finalVisibleSales,
+    visibleStock: finalVisibleStock,
+    visibleExpired: finalVisibleExpired,
+    visibleBranches: finalVisibleBranches,
     totalResults: finalTotalResults,
     totalSales: finalTotalSales,
     totalProfit: finalTotalProfit,
