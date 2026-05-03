@@ -50,6 +50,16 @@ function Sidebar() {
   );
 }
 
+function formatAiAnswerLines(answer: string) {
+  return answer
+    .replace(/\s+(Ringkasan|Penjualan|Transaksi|Stok Barang|Stok|Expired|Produk Kedaluwarsa\/Mendekati Kedaluwarsa|Cabang|Total):/gi, "\n$1:")
+    .replace(/\s+-\s+/g, "\n- ")
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 18);
+}
+
 export default async function PencarianAiPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const query = params?.q?.trim() ?? "";
@@ -65,6 +75,8 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
   const summaryOnly = searchResult?.summaryOnly ?? false;
   const hasResults = totalResults > 0 && !summaryOnly;
   const exportQuery = encodeURIComponent(query);
+  const answerText = searchResult?.answerText ?? `Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`;
+  const answerLines = formatAiAnswerLines(answerText);
 
   return (
     <main className="shell">
@@ -95,7 +107,18 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
                 </div>
                 <div>
                   <strong>{summaryOnly ? `Jawaban untuk "${query}"` : `${totalResults} hasil untuk "${query}"`}</strong>
-                  <p>{searchResult?.answerText ?? `Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`}</p>
+                  <div className="ai-answer__text">
+                    {answerLines.map((line, index) => {
+                      const isBullet = line.startsWith("- ");
+                      const isHeading = /:$/.test(line) && !isBullet;
+
+                      return (
+                        <p className={`${isBullet ? "ai-answer__bullet" : ""} ${isHeading ? "ai-answer__heading" : ""}`} key={`${line}-${index}`}>
+                          {isBullet ? line.slice(2) : line}
+                        </p>
+                      );
+                    })}
+                  </div>
                   {hasResults ? (
                     <div className="ai-export-actions" aria-label="Export hasil pencarian">
                       <Link className="ai-export-button" href={`/api/ai-search/export?q=${exportQuery}&format=xlsx`}>

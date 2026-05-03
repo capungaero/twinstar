@@ -126,6 +126,30 @@
   margin-top: 5px;
 }
 
+.ai-answer__text {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  max-width: 880px;
+}
+
+.ai-answer__text p {
+  line-height: 1.45;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ai-answer__heading {
+  color: var(--text) !important;
+  font-weight: 700;
+  margin-top: 8px !important;
+}
+
+.ai-answer__bullet {
+  border-left: 3px solid #d6e4f5;
+  padding-left: 10px;
+}
+
 .ai-export-actions {
   display: flex;
   gap: 8px;
