@@ -1,4 +1,4 @@
-import { Bot, Boxes, Building2, Database, ReceiptText, Search, Sparkles, TrendingUp } from "lucide-react";
+import { Bot, Boxes, Building2, Database, Download, ReceiptText, Search, Sparkles, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { buildAiSearchResponse } from "@/lib/ai-search";
 import { getProductCategory } from "@/lib/filters";
@@ -64,6 +64,7 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
   const totalProfit = searchResult?.totalProfit ?? 0;
   const summaryOnly = searchResult?.summaryOnly ?? false;
   const hasResults = totalResults > 0 && !summaryOnly;
+  const exportQuery = encodeURIComponent(query);
 
   return (
     <main className="shell">
@@ -95,6 +96,18 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
                 <div>
                   <strong>{summaryOnly ? `Jawaban untuk "${query}"` : `${totalResults} hasil untuk "${query}"`}</strong>
                   <p>{searchResult?.answerText ?? `Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`}</p>
+                  {hasResults ? (
+                    <div className="ai-export-actions" aria-label="Export hasil pencarian">
+                      <Link className="ai-export-button" href={`/api/ai-search/export?q=${exportQuery}&format=xlsx`}>
+                        <Download size={15} />
+                        XLSX
+                      </Link>
+                      <Link className="ai-export-button" href={`/api/ai-search/export?q=${exportQuery}&format=csv`}>
+                        <Download size={15} />
+                        CSV
+                      </Link>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
