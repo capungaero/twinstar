@@ -157,9 +157,18 @@ function wantsProfitAggregate(query: string) {
   return /keuntungan|profit|laba/i.test(query);
 }
 
+function wantsSalesByBranch(query: string) {
+  return /(?:penjualan|omzet|pendapatan).*(?:per|tiap|setiap)\s+cabang|(?:per|tiap|setiap)\s+cabang.*(?:penjualan|omzet|pendapatan)/i.test(query);
+}
+
+function isLogicOnlyQuery(query: string) {
+  const normalized = normalize(query);
+  return /^(logic|logika|menghitung|hitung|cara\s+hitung|cara\s+menghitung)$/i.test(normalized);
+}
+
 function isConversationalQuery(query: string) {
   const normalized = normalize(query);
-  return /(?:^|\b)(siapa|apa)\s+(kamu|anda)|(?:^|\b)(kamu|anda)\s+siapa|\b(logic|logika|menghitung|hitung)\b|^help$|^bantuan$|^halo$|^hai$|^test$|^tes$/i.test(normalized);
+  return /(?:^|\b)(siapa|apa)\s+(kamu|anda)|(?:^|\b)(kamu|anda)\s+siapa|^help$|^bantuan$|^halo$|^hai$|^test$|^tes$/i.test(normalized) || isLogicOnlyQuery(query);
 }
 
 function buildConversationalAnswer(query: string) {
@@ -168,7 +177,7 @@ function buildConversationalAnswer(query: string) {
     return "Saya Admin AI untuk dashboard POS. Saya memakai pencarian hybrid: memahami bahasa natural, memperbaiki typo ringan, menghitung ringkasan, lalu mencocokkan data dari database.";
   }
 
-  if (/logic|logika|menghitung|hitung/.test(normalized)) {
+  if (isLogicOnlyQuery(normalized)) {
     return "Saya memakai logika pencarian hybrid: query dipahami sebagai intent, keyword penting diekstrak, typo ringan dicocokkan secara fuzzy, hasil vektor dipadukan dengan filter database, lalu total penjualan atau laba dihitung dari data yang cocok.";
   }
 
@@ -197,13 +206,32 @@ function isWithinLastDays(dateValue: string | null, days: number) {
   return date >= start;
 }
 
-function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly" | "visibleSales" | "visibleStock" | "visibleExpired" | "visibleBranches" | "totalResults" | "totalSales" | "totalProfit">) {
+function formatSalesByBranch(sales: DashboardData["recentSales"]) {
+  const rows = Array.from(
+    sales.reduce((map, sale) => {
+      const key = `${sale.branchCode || "-"} ${sale.branchName || "Cabang"}`.trim();
+      const current = map.get(key) ?? { transactions: 0, total: 0, profit: 0 };
+      current.transactions += 1;
+      current.total += sale.total;
+      current.profit += sale.profit;
+      map.set(key, current);
+      return map;
+    }, new Map<string, { transactions: number; total: number; profit: number }>())
+  )
+    .sort((left, right) => right[1].total - left[1].total)
+    .map(([branch, value]) => `- ${branch}: ${formatCurrency(value.total)} dari ${formatNumber(value.transactions)} transaksi`);
+
+  return rows.length ? `\nPenjualan per cabang:\n${rows.join("\n")}` : "";
+}
+
+function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly" | "visibleSales" | "visibleStock" | "visibleExpired" | "visibleBranches" | "totalResults" | "totalSales" | "totalProfit"> & { aggregateSales?: DashboardData["recentSales"] }) {
   if (result.summaryOnly && wantsProfitAggregate(result.query)) {
     return `Total laba yang cocok dengan pencarian ini adalah ${formatCurrency(result.totalProfit)} dari ${formatNumber(result.totalResults)} transaksi. Total penjualan terkait: ${formatCurrency(result.totalSales)}.`;
   }
 
   if (result.summaryOnly && wantsSalesAggregate(result.query)) {
-    return `Total penjualan yang cocok dengan pencarian ini adalah ${formatCurrency(result.totalSales)} dari ${formatNumber(result.totalResults)} transaksi. Estimasi laba: ${formatCurrency(result.totalProfit)}.`;
+    const branchText = wantsSalesByBranch(result.query) ? formatSalesByBranch(result.aggregateSales ?? []) : "";
+    return `Total penjualan yang cocok dengan pencarian ini adalah ${formatCurrency(result.totalSales)} dari ${formatNumber(result.totalResults)} transaksi. Estimasi laba: ${formatCurrency(result.totalProfit)}.${branchText}`;
   }
 
   if (result.visibleStock.length > 0 && result.visibleSales.length === 0 && result.visibleExpired.length === 0 && result.visibleBranches.length === 0) {
@@ -318,8 +346,10 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const wantsBranch = hasQuery && (searchPlan?.focus === "branch" || searchPlan?.focus === "mixed");
   const broadSearch = hasQuery && searchPlan?.focus === "mixed";
 
+  const aggregateSalesQuery = salesAggregate || wantsProfitAggregate(query) || wantsSalesByBranch(query);
+  const salesFilterSource = aggregateSalesQuery ? data.recentSales : salesSource;
   const matchedSales = hasQuery && !conversational
-    ? salesSource
+    ? salesFilterSource
         .filter((sale) => (salesWindowDays ? isWithinLastDays(sale.date, salesWindowDays) : true))
         .filter((sale) => matchesBranch(sale.branchCode, sale.branchName, branchFilter))
         .map((sale) => ({
@@ -338,7 +368,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
             sale.profit
           ])
         }))
-        .filter((match) => searchTerms.length === 0 || match.score > 0 || broadSearch)
+        .filter((match) => searchTerms.length === 0 || match.score > 0 || broadSearch || aggregateSalesQuery)
         .sort((a, b) => b.score - a.score || b.item.total - a.item.total)
         .map((match) => match.item)
     : [];
@@ -403,7 +433,8 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         visibleBranches: filteredBranches,
         totalResults,
         totalSales,
-        totalProfit
+        totalProfit,
+        aggregateSales: allSales
       })
       : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS.";
   const geminiAnswer = hasQuery && useGeminiSearch ? await answerGeminiFromData(query, buildGeminiDataSnapshot(data, query)) : null;
