@@ -16,3 +16,4 @@ tsconfig.tsbuildinfo
 .vercel
 .telegram/
 .dummy-db/
+.vector-db/

@@ -11,7 +11,8 @@
     "telegram:inbox": "node tools/telegram-inbox.js",
     "telegram:webhook": "node tools/register-telegram-webhook.js",
     "telegram:poll": "node tools/telegram-poll.js",
-    "kirimi:test": "node tools/send-kirimi.js"
+    "kirimi:test": "node tools/send-kirimi.js",
+    "vector:embed": "tsx tools/embed-vector-db.ts"
   },
   "dependencies": {
     "lucide-react": "^1.14.0",
@@ -26,6 +27,7 @@
     "@types/react-dom": "^19.0.4",
     "eslint": "^9.25.1",
     "eslint-config-next": "^15.3.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.8.3"
   }
 }

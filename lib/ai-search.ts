@@ -2,6 +2,7 @@ import { answerGeminiFromData, buildFallbackSearchPlan, inferGeminiSearchPlan, t
 import { getProductCategory } from "@/lib/filters";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { getDashboardData } from "@/lib/legacy-db";
+import { getVectorSearchResults } from "@/lib/vector-search";
 
 type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
 type StockItem = DashboardData["lowStockProducts"][number] | DashboardData["topStockProducts"][number];
@@ -258,6 +259,11 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const salesWindowDays = getSalesWindowDays(query);
   const branchFilter = getBranchCodeFilter(query);
   const lowStockOnly = isLowStockQuery(query);
+  const vectorResults = hasQuery && !conversational ? getVectorSearchResults(data, effectiveQuery || query) : null;
+  const salesSource = vectorResults?.sales.length ? vectorResults.sales : data.recentSales;
+  const stockSourceBase = vectorResults?.stock.length ? vectorResults.stock : [...data.lowStockProducts, ...data.topStockProducts];
+  const expiredSource = vectorResults?.expired.length ? vectorResults.expired : data.expiringProducts;
+  const branchSource = vectorResults?.branches.length ? vectorResults.branches : data.branchSummaries;
   const wantsSales = hasQuery && (searchPlan?.focus === "sales" || searchPlan?.focus === "mixed");
   const wantsStock = hasQuery && (searchPlan?.focus === "stock" || searchPlan?.focus === "mixed");
   const wantsExpired = hasQuery && (searchPlan?.focus === "expired" || searchPlan?.focus === "mixed");
@@ -265,7 +271,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const broadSearch = hasQuery && searchPlan?.focus === "mixed";
 
   const matchedSales = hasQuery && !conversational
-    ? data.recentSales
+    ? salesSource
         .filter((sale) => (salesWindowDays ? isWithinLastDays(sale.date, salesWindowDays) : true))
         .filter((sale) => matchesBranch(sale.branchCode, sale.branchName, branchFilter))
         .map((sale) => ({
@@ -289,7 +295,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         .map((match) => match.item)
     : [];
 
-  const stockSource = lowStockOnly ? data.lowStockProducts : [...data.lowStockProducts, ...data.topStockProducts];
+  const stockSource = lowStockOnly ? stockSourceBase.filter((product) => "minimum" in product) : stockSourceBase;
   const matchedStock = hasQuery && !conversational
     ? stockSource
         .filter((product) => matchesBranch(undefined, product.branchName, branchFilter))
@@ -303,7 +309,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
     : [];
 
   const matchedExpired = hasQuery && !conversational
-    ? data.expiringProducts
+    ? expiredSource
         .filter((product) => matchesBranch(undefined, product.branchName, branchFilter))
         .map((product) => ({
           item: product,
@@ -315,7 +321,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
     : [];
 
   const matchedBranches = hasQuery && !conversational
-    ? data.branchSummaries
+    ? branchSource
         .filter((branch) => matchesBranch(branch.code, branch.name, branchFilter))
         .map((branch) => ({
           item: branch,
