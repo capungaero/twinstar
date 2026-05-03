@@ -118,32 +118,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, handled: false, reason: "Empty query" });
   }
 
-  const search = await buildAiSearchResponse(query);
-  const replyText = search.replyText;
+  try {
+    const search = await buildAiSearchResponse(query);
+    const replyText = search.replyText;
 
-  if (!replyText) {
-    return NextResponse.json({ ok: false, handled: false, reason: "Empty reply text" }, { status: 500 });
-  }
-
-  const receiver = incomingNumber || targetNumber;
-  if (!receiver) {
-    return NextResponse.json({ ok: false, handled: false, reason: "No receiver detected" }, { status: 400 });
-  }
-
-  await sendKirimiMessage({
-    receiver,
-    message: replyText
-  });
-
-  return NextResponse.json({
-    ok: true,
-    handled: true,
-    receiver,
-    query,
-    results: {
-      totalResults: search.totalResults,
-      totalSales: search.totalSales,
-      totalProfit: search.totalProfit
+    if (!replyText) {
+      return NextResponse.json({ ok: false, handled: false, reason: "Empty reply text" }, { status: 500 });
     }
-  });
+
+    const receiver = incomingNumber || targetNumber;
+    if (!receiver) {
+      return NextResponse.json({ ok: false, handled: false, reason: "No receiver detected" }, { status: 400 });
+    }
+
+    await sendKirimiMessage({
+      receiver,
+      message: replyText
+    });
+
+    return NextResponse.json({
+      ok: true,
+      handled: true,
+      receiver,
+      query,
+      results: {
+        totalResults: search.totalResults,
+        totalSales: search.totalSales,
+        totalProfit: search.totalProfit
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown Kirimi webhook error";
+    return NextResponse.json({ ok: false, handled: false, reason: message }, { status: 500 });
+  }
 }
