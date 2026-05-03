@@ -1,3 +1,5 @@
+import { readDummyStockStore, type DummyStockProduct } from "@/lib/dummy-stock-store";
+
 type BranchStatus = "online" | "syncing" | "warning";
 
 export type BranchInfo = {
@@ -250,6 +252,56 @@ function dummyProductCode(branchIndex: number, itemIndex: number, category: stri
 const PAYMENT_METHODS = ["Tunai", "QRIS", "Transfer", "Piutang"];
 const SALE_STATUSES = ["normal", "normal", "normal", "normal", "retur", "batal", "koreksi"] as const;
 
+function branchNameByCode(branchCode: string) {
+  return SIMULATED_BRANCHES.find((branch) => branch.code === branchCode)?.name;
+}
+
+function applyDummyStockOverrides(
+  lowStockProducts: DashboardData["lowStockProducts"],
+  topStockProducts: DashboardData["topStockProducts"],
+  overrides: Record<string, Record<string, DummyStockProduct>>
+) {
+  const nextLowStock = [...lowStockProducts];
+  const nextTopStock = [...topStockProducts];
+
+  for (const [branchCode, products] of Object.entries(overrides)) {
+    const branchName = branchNameByCode(branchCode);
+    if (!branchName) continue;
+
+    for (const product of Object.values(products)) {
+      const removeProduct = <T extends { branchName: string; code: string }>(items: T[]) =>
+        items.filter((item) => item.branchName !== branchName || item.code !== product.code);
+      const existingLow = nextLowStock.find((item) => item.branchName === branchName && item.code === product.code);
+      const existingTop = nextTopStock.find((item) => item.branchName === branchName && item.code === product.code);
+      const minimum = product.minimum ?? existingLow?.minimum;
+
+      nextLowStock.splice(0, nextLowStock.length, ...removeProduct(nextLowStock));
+      nextTopStock.splice(0, nextTopStock.length, ...removeProduct(nextTopStock));
+
+      if (minimum !== undefined && product.stock <= minimum) {
+        nextLowStock.push({
+          code: product.code,
+          branchName,
+          name: product.name,
+          stock: product.stock,
+          minimum,
+          price: product.price || existingLow?.price || existingTop?.price || 0
+        });
+      } else {
+        nextTopStock.push({
+          code: product.code,
+          branchName,
+          name: product.name,
+          stock: product.stock,
+          price: product.price || existingLow?.price || existingTop?.price || 0
+        });
+      }
+    }
+  }
+
+  return { lowStockProducts: nextLowStock, topStockProducts: nextTopStock };
+}
+
 export async function getDashboardData(): Promise<DashboardData> {
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = `${today.slice(0, 8)}01`;
@@ -280,7 +332,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       };
     })
   ).sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || b.total - a.total);
-  const simulatedLowStock = SIMULATED_BRANCHES.flatMap((branch, branchIndex) =>
+  let simulatedLowStock = SIMULATED_BRANCHES.flatMap((branch, branchIndex) =>
     Array.from({ length: 20 }, (_, itemIndex) => {
       const catalog = catalogItem(branchIndex * 100 + itemIndex);
       const minimum = seededInt(branchIndex * 500 + itemIndex * 7, 8, 25);
@@ -296,7 +348,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       };
     })
   );
-  const simulatedTopStock = SIMULATED_BRANCHES.flatMap((branch, branchIndex) =>
+  let simulatedTopStock = SIMULATED_BRANCHES.flatMap((branch, branchIndex) =>
     Array.from({ length: 80 }, (_, itemIndex) => {
       const catalog = catalogItem(branchIndex * 100 + itemIndex + 20);
       const stock = seededInt(branchIndex * 800 + itemIndex * 17, 24, 260);
@@ -337,6 +389,11 @@ export async function getDashboardData(): Promise<DashboardData> {
       };
     })
   );
+  const dummyStore = await readDummyStockStore();
+  const stockWithOverrides = applyDummyStockOverrides(simulatedLowStock, simulatedTopStock, dummyStore.products);
+  simulatedLowStock = stockWithOverrides.lowStockProducts;
+  simulatedTopStock = stockWithOverrides.topStockProducts;
+
   const branchSummaries = SIMULATED_BRANCHES.map((branch, index) => {
       const branchSales = simulatedRecentSales.filter((sale) => sale.branchCode === branch.code);
       const branchLowStock = simulatedLowStock.filter((product) => product.branchName === branch.name);
@@ -468,4 +525,30 @@ export async function getBranchDetailData(branchCode = "C01"): Promise<BranchDet
     topStockProducts: dashboard.topStockProducts.filter((product) => product.branchName === selectedBranch.name),
     expiringProducts: dashboard.expiringProducts.filter((product) => product.branchName === selectedBranch.name)
   };
+}
+
+export async function findBranchProduct(branchCode: string, productCode: string) {
+  const dashboard = await getDashboardData();
+  const branchName = branchNameByCode(branchCode);
+  if (!branchName) return null;
+
+  const product = [...dashboard.lowStockProducts, ...dashboard.topStockProducts].find(
+    (item) => item.branchName === branchName && item.code === productCode
+  );
+
+  if (!product) return null;
+
+  return {
+    code: product.code,
+    name: product.name,
+    stock: product.stock,
+    minimum: "minimum" in product && typeof product.minimum === "number" ? product.minimum : undefined,
+    price: product.price,
+    branchCode,
+    branchName
+  };
+}
+
+export function getBranchNameFromCode(branchCode: string) {
+  return branchNameByCode(branchCode);
 }

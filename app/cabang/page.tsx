@@ -27,6 +27,8 @@ type PageProps = {
     kode?: string;
     q?: string;
     kategori?: string;
+    page?: string;
+    status?: string;
   }>;
 };
 
@@ -62,7 +64,7 @@ function Sidebar({ active = "cabang" }: { active?: string }) {
       <section className="branch-panel">
         <span>Mode Kelola</span>
         <strong>Cabang, stok, transfer</strong>
-        <p>Form masih simulasi UI. Integrasi tulis ke database legacy dibuat setelah mapping final.</p>
+        <p>Form menulis ke database dummy untuk koreksi stok dan transfer antar cabang.</p>
       </section>
     </aside>
   );
@@ -84,18 +86,41 @@ export default async function CabangPage({ searchParams }: PageProps) {
   const selectedBranchColor = getBranchColor(selectedBranchIndex);
   const searchQuery = params?.q ?? "";
   const selectedCategory = params?.kategori ?? "Semua Kategori";
+  const status = params?.status ?? "";
   const branchQuery = `kode=${data.selectedBranch.code}`;
   const stockRows = [...data.lowStockProducts, ...data.topStockProducts].filter(
     (product) =>
       matchesTextSearch(searchQuery, [product.code, product.name]) &&
       matchesCategory(selectedCategory, product.name)
   );
+  const perPage = 50;
+  const totalStockPages = Math.max(1, Math.ceil(stockRows.length / perPage));
+  const currentStockPage = Math.min(Math.max(Number(params?.page ?? 1) || 1, 1), totalStockPages);
+  const pagedStockRows = stockRows.slice((currentStockPage - 1) * perPage, currentStockPage * perPage);
   const expiredRows = data.expiringProducts.filter(
     (product) =>
       matchesTextSearch(searchQuery, [product.code, product.name]) &&
       matchesCategory(selectedCategory, product.name)
   );
   const primaryProduct = stockRows[0] ?? data.topStockProducts[0] ?? data.lowStockProducts[0];
+  const primaryMinimum = primaryProduct && "minimum" in primaryProduct && typeof primaryProduct.minimum === "number" ? primaryProduct.minimum : 0;
+  const targetBranches = data.branches.filter((branch) => branch.code !== data.selectedBranch.code);
+  const defaultTargetBranch = targetBranches[0]?.code ?? "";
+  const buildStockPageHref = (page: number) => {
+    const nextParams = new URLSearchParams({
+      kode: data.selectedBranch.code,
+      page: String(page)
+    });
+    if (searchQuery) nextParams.set("q", searchQuery);
+    if (selectedCategory !== "Semua Kategori") nextParams.set("kategori", selectedCategory);
+    return `/cabang?${nextParams.toString()}`;
+  };
+  const statusText: Record<string, string> = {
+    "stock-saved": "Data stok berhasil disimpan ke database dummy.",
+    "stock-invalid": "Kode, nama barang, dan stok wajib diisi dengan benar.",
+    "transfer-saved": "Transfer barang berhasil disimpan ke database dummy.",
+    "transfer-invalid": "Transfer gagal. Cek cabang tujuan, barang, jumlah, dan stok sumber."
+  };
 
   return (
     <main className="shell">
@@ -183,6 +208,13 @@ export default async function CabangPage({ searchParams }: PageProps) {
           </article>
         </section>
 
+        {statusText[status] ? (
+          <section className={`notice ${status.includes("invalid") ? "notice--warning" : "notice--success"}`}>
+            <ClipboardCheck size={19} />
+            <strong>{statusText[status]}</strong>
+          </section>
+        ) : null}
+
         <section className="management-grid">
           <article className="panel">
             <div className="panel__header">
@@ -191,30 +223,37 @@ export default async function CabangPage({ searchParams }: PageProps) {
                 <h2><PackagePlus size={19} /> Tambah / Edit Stock</h2>
               </div>
             </div>
-            <form className="form-grid">
+            <form className="form-grid" action="/api/cabang/stock" method="post">
+              <input name="branchCode" type="hidden" value={data.selectedBranch.code} />
               <Field label="Kode barang">
-                <input defaultValue={primaryProduct?.code ?? ""} />
+                <input name="code" defaultValue={primaryProduct?.code ?? ""} required />
               </Field>
               <Field label="Nama barang">
-                <input defaultValue={primaryProduct?.name ?? ""} />
+                <input name="name" defaultValue={primaryProduct?.name ?? ""} required />
               </Field>
               <Field label="Stok sistem">
-                <input defaultValue={primaryProduct?.stock ?? 0} type="number" />
+                <input defaultValue={primaryProduct?.stock ?? 0} readOnly type="number" />
               </Field>
               <Field label="Stok baru">
-                <input placeholder="Masukkan stok fisik" type="number" />
+                <input name="stock" placeholder="Masukkan stok fisik" min={0} required type="number" />
+              </Field>
+              <Field label="Harga">
+                <input name="price" defaultValue={primaryProduct?.price ?? 0} min={0} step={1000} type="number" />
+              </Field>
+              <Field label="Minimum">
+                <input name="minimum" defaultValue={primaryMinimum} min={0} type="number" />
               </Field>
               <Field label="Alasan">
-                <select defaultValue="stok-opname">
+                <select name="reason" defaultValue="stok-opname">
                   <option value="stok-opname">Stok opname</option>
                   <option value="rusak">Barang rusak</option>
                   <option value="expired">Barang expired</option>
                   <option value="koreksi">Koreksi administrasi</option>
                 </select>
               </Field>
-              <button className="icon-button form-button" type="button">
+              <button className="icon-button form-button" type="submit">
                 <Save size={17} />
-                Buat Draft Koreksi
+                Simpan Stok
               </button>
             </form>
           </article>
@@ -226,33 +265,38 @@ export default async function CabangPage({ searchParams }: PageProps) {
                 <h2><ArrowLeftRight size={19} /> Transfer Barang</h2>
               </div>
             </div>
-            <form className="form-grid">
+            <form className="form-grid" action="/api/cabang/transfer" method="post">
+              <input name="fromBranchCode" type="hidden" value={data.selectedBranch.code} />
               <Field label="Dari cabang">
-                <input defaultValue={data.selectedBranch.name} />
+                <input defaultValue={data.selectedBranch.name} readOnly />
               </Field>
               <Field label="Ke cabang">
-                <select defaultValue="C01">
-                  {data.branches
-                    .filter((branch) => branch.code !== data.selectedBranch.code)
-                    .map((branch) => (
-                      <option value={branch.code} key={branch.code}>
-                        {branch.name}
-                      </option>
-                    ))}
+                <select name="toBranchCode" defaultValue={defaultTargetBranch} required>
+                  {targetBranches.map((branch) => (
+                    <option value={branch.code} key={branch.code}>
+                      {branch.name}
+                    </option>
+                  ))}
                 </select>
               </Field>
               <Field label="Barang">
-                <input defaultValue={primaryProduct?.name ?? ""} />
+                <select name="productCode" defaultValue={primaryProduct?.code ?? ""} required>
+                  {stockRows.map((product, index) => (
+                    <option value={product.code} key={`${product.code}-${product.name}-${index}`}>
+                      {product.name} ({product.code}) - stok {formatNumber(product.stock)}
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field label="Jumlah transfer">
-                <input placeholder="0" type="number" />
+                <input name="quantity" placeholder="0" min={1} required type="number" />
               </Field>
               <Field label="Catatan">
-                <input placeholder="Keterangan transfer" />
+                <input name="note" placeholder="Keterangan transfer" />
               </Field>
-              <button className="icon-button form-button" type="button">
+              <button className="icon-button form-button" type="submit">
                 <ArrowLeftRight size={17} />
-                Buat Draft Transfer
+                Simpan Transfer
               </button>
             </form>
           </article>
@@ -306,7 +350,7 @@ export default async function CabangPage({ searchParams }: PageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {stockRows.map((product, index) => {
+                  {pagedStockRows.map((product, index) => {
                     const isLimit = "minimum" in product;
                     const minimum = isLimit ? (product as { minimum: number }).minimum : undefined;
                     const rowType = isLimit ? "limit" : "safe";
@@ -334,12 +378,27 @@ export default async function CabangPage({ searchParams }: PageProps) {
                 </tbody>
               </table>
             </div>
+            <div className="pagination-bar stock-pagination">
+              <span>
+                Menampilkan {formatNumber(pagedStockRows.length)} dari {formatNumber(stockRows.length)} barang
+              </span>
+              <div className="pagination-actions">
+                <Link className={`icon-button ${currentStockPage <= 1 ? "icon-button--disabled" : ""}`} href={buildStockPageHref(currentStockPage - 1)}>
+                  Sebelumnya
+                </Link>
+                <strong>
+                  Halaman {formatNumber(currentStockPage)} / {formatNumber(totalStockPages)}
+                </strong>
+                <Link className={`icon-button ${currentStockPage >= totalStockPages ? "icon-button--disabled" : ""}`} href={buildStockPageHref(currentStockPage + 1)}>
+                  Berikutnya
+                </Link>
+              </div>
+            </div>
           </article>
 
           <article className="panel">
             <div className="panel__header">
               <div>
-                <span>Expired</span>
                 <h2><AlertTriangle size={19} /> Barang Expired</h2>
               </div>
             </div>

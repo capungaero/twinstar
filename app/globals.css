@@ -505,6 +505,18 @@ h1 {
   border-color: #fecdca;
 }
 
+.notice--success {
+  color: var(--success);
+  background: #ecfdf3;
+  border-color: #abefc6;
+}
+
+.notice--warning {
+  color: var(--warning);
+  background: #fffaeb;
+  border-color: #fedf89;
+}
+
 .notice p {
   color: #7a271a;
   margin-top: 4px;
@@ -1651,11 +1663,19 @@ h1 {
   background: #fbfcfe;
 }
 
-.pagination-bar div {
+.pagination-bar div,
+.pagination-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.pagination-actions strong,
+.stock-pagination > span {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .search-panel {
