@@ -1,6 +1,6 @@
 import { answerGeminiFromData, buildFallbackSearchPlan, inferGeminiSearchPlan, type GeminiSearchPlan } from "@/lib/gemini";
 import { getProductCategory } from "@/lib/filters";
-import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
+import { formatCurrency, formatNumber } from "@/lib/format";
 import { getDashboardData } from "@/lib/legacy-db";
 
 type DashboardData = Awaited<ReturnType<typeof getDashboardData>>;
@@ -103,10 +103,6 @@ function scoreValues(terms: string[], values: Array<string | number | null | und
   return terms.reduce((score, term) => score + (text.includes(term) ? 1 : 0), 0);
 }
 
-function compactItems(items: string[], limit: number) {
-  return items.filter(Boolean).slice(0, limit);
-}
-
 function wantsSummaryOnly(query: string) {
   return /total(?:nya)?\s+saja|total\s+nya\s+saja|tidak\s+usah\s+(?:tampilkan|pakai)\s+(?:list|daftar)|jangan\s+tampilkan\s+(?:list|daftar)|tanpa\s+(?:list|daftar|rincian)|ringkas\s+saja|jawab\s+saja/i.test(query);
 }
@@ -180,48 +176,6 @@ function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly"
   }
 
   return `Ditemukan ${formatNumber(result.totalResults)} hasil terkait: ${result.visibleSales.length} transaksi, ${result.visibleStock.length} data stok, ${result.visibleExpired.length} barang expired, dan ${result.visibleBranches.length} cabang. Total penjualan: ${formatCurrency(result.totalSales)}.`;
-}
-
-function formatResultLines(result: AiSearchResponse) {
-  const lines = [result.answerText];
-
-  if (result.summaryOnly || result.conversational) {
-    return lines.join("\n");
-  }
-
-  const salesLines = compactItems(
-    result.visibleSales.map((sale) => `- ${sale.itemName} | ${sale.branchName} | ${formatCurrency(sale.total)} | ${sale.paymentMethod}`),
-    3
-  );
-  if (salesLines.length) {
-    lines.push("", "Transaksi:", ...salesLines);
-  }
-
-  const stockLines = compactItems(
-    result.visibleStock.map((product) => `- ${product.name} | ${product.branchName} | stok ${formatNumber(product.stock)} | ${formatCurrency(product.price)}`),
-    3
-  );
-  if (stockLines.length) {
-    lines.push("", "Stok:", ...stockLines);
-  }
-
-  const expiredLines = compactItems(
-    result.visibleExpired.map((product) => `- ${product.name} | ${product.branchName} | exp ${formatDate(product.expiredAt)} | stok ${formatNumber(product.stock)}`),
-    3
-  );
-  if (expiredLines.length) {
-    lines.push("", "Expired:", ...expiredLines);
-  }
-
-  const branchLines = compactItems(
-    result.visibleBranches.map((branch) => `- ${branch.name} | ${branch.code} | ${formatCurrency(branch.monthSales)} | ${branch.status}`),
-    3
-  );
-  if (branchLines.length) {
-    lines.push("", "Cabang:", ...branchLines);
-  }
-
-  return lines.join("\n");
 }
 
 function buildGeminiDataSnapshot(data: DashboardData, query: string) {
@@ -419,25 +373,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
     totalResults: finalTotalResults,
     totalSales: finalTotalSales,
     totalProfit: finalTotalProfit,
-    replyText: hasQuery
-      ? formatResultLines({
-          query,
-          data,
-          searchPlan,
-          effectiveQuery,
-          summaryOnly,
-          conversational,
-          answerText,
-          visibleSales: filteredSales,
-          visibleStock: filteredStock,
-          visibleExpired: filteredExpired,
-          visibleBranches: filteredBranches,
-          totalResults: finalTotalResults,
-          totalSales: finalTotalSales,
-          totalProfit: finalTotalProfit,
-          replyText: ""
-        })
-      : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS."
+    replyText: answerText
   };
 
   return response;
