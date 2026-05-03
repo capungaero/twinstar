@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 export type TelegramInboxItem = {
+  kind: "message" | "ai_request";
   receivedAt: string;
   updateId: number;
   chatId: number | string | null;
@@ -10,6 +11,8 @@ export type TelegramInboxItem = {
   fromName: string | null;
   username: string | null;
   text: string | null;
+  command: string | null;
+  aiPrompt: string | null;
   raw: unknown;
 };
 
@@ -30,7 +33,11 @@ export function mapTelegramUpdateToInboxItem(update: any): TelegramInboxItem | n
     return null;
   }
 
+  const text = typeof message?.text === "string" ? message.text : typeof message?.caption === "string" ? message.caption : null;
+  const aiPrompt = parseAiPrompt(text);
+
   return {
+    kind: aiPrompt ? "ai_request" : "message",
     receivedAt: new Date().toISOString(),
     updateId: Number(update?.update_id ?? 0),
     chatId: message?.chat?.id ?? null,
@@ -38,9 +45,36 @@ export function mapTelegramUpdateToInboxItem(update: any): TelegramInboxItem | n
     fromId: message?.from?.id ?? null,
     fromName: [message?.from?.first_name, message?.from?.last_name].filter(Boolean).join(" ") || null,
     username: message?.from?.username ?? null,
-    text: typeof message?.text === "string" ? message.text : typeof message?.caption === "string" ? message.caption : null,
+    text,
+    command: aiPrompt ? "/ai" : null,
+    aiPrompt,
     raw: update
   };
+}
+
+function parseAiPrompt(text: string | null) {
+  if (!text) {
+    return null;
+  }
+
+  const match = text.match(/^\/ai\s*:\s*([\s\S]+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const prompt = match[1].trim();
+  return prompt.length > 0 ? prompt : null;
+}
+
+export function formatInboxItem(item: TelegramInboxItem) {
+  const sender = item.username ? `@${item.username}` : item.fromName || item.fromId || "unknown";
+  const time = new Date(item.receivedAt).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" });
+
+  if (item.kind === "ai_request") {
+    return `[${time}] AI request from ${sender}: ${item.aiPrompt || item.text || ""}`;
+  }
+
+  return `[${time}] Message from ${sender}: ${item.text || "[non-text message]"}`;
 }
 
 export async function appendTelegramInboxItem(item: TelegramInboxItem) {

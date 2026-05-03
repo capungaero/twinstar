@@ -1,6 +1,6 @@
 type TelegramSendOptions = {
   token?: string;
-  chatId?: string;
+  chatId?: string | number;
   message: string;
 };
 

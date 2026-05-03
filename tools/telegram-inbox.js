@@ -54,8 +54,9 @@ async function main() {
   console.log(`Inbox Telegram (${rows.length} pesan terakhir)`);
   for (const item of rows) {
     const sender = item.username ? `@${item.username}` : item.fromName || item.fromId || "unknown";
-    const text = item.text || "[non-text message]";
-    console.log(`[${item.receivedAt}] chat=${item.chatId} sender=${sender} text=${text}`);
+    const text = item.kind === "ai_request" ? item.aiPrompt || item.text || "[empty ai prompt]" : item.text || "[non-text message]";
+    const label = item.kind === "ai_request" ? "ai_request" : "message";
+    console.log(`[${item.receivedAt}] kind=${label} chat=${item.chatId} sender=${sender} text=${text}`);
   }
 
   if (envFromFile.TELEGRAM_BOT_TOKEN) {

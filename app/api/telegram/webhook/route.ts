@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { appendTelegramInboxItem, mapTelegramUpdateToInboxItem } from "@/lib/telegram-inbox";
+import { sendTelegramMessage } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,6 +33,17 @@ export async function POST(request: Request) {
   }
 
   await appendTelegramInboxItem(inboxItem);
+
+  if (inboxItem.kind === "ai_request" && inboxItem.chatId && inboxItem.aiPrompt) {
+    try {
+      await sendTelegramMessage({
+        chatId: inboxItem.chatId,
+        message: `Perintah diterima:\n${inboxItem.aiPrompt}`
+      });
+    } catch {
+      // Jangan gagal total hanya karena balasan acknowledgement tidak terkirim.
+    }
+  }
 
   return NextResponse.json({ ok: true, stored: true });
 }
