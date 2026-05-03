@@ -63,7 +63,8 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
   const totalResults = searchResult?.totalResults ?? 0;
   const totalSales = searchResult?.totalSales ?? 0;
   const totalProfit = searchResult?.totalProfit ?? 0;
-  const hasResults = totalResults > 0;
+  const summaryOnly = searchResult?.summaryOnly ?? false;
+  const hasResults = totalResults > 0 && !summaryOnly;
 
   return (
     <main className="shell">
@@ -108,20 +109,18 @@ export default async function PencarianAiPage({ searchParams }: PageProps) {
             <div>
               <span>Hasil Pencarian AI</span>
               <strong>
-                {hasQuery
-                  ? `${totalResults} hasil ditemukan untuk "${query}"`
-                  : "Masukkan prompt untuk mulai mencari data POS"}
+                {hasQuery ? (summaryOnly ? `Jawaban ringkas untuk "${query}"` : `${totalResults} hasil ditemukan untuk "${query}"`) : "Masukkan prompt untuk mulai mencari data POS"}
               </strong>
               <p>
                 {hasQuery
-                  ? `${searchResult?.searchPlan?.summary ?? "Pencarian lokal membantu memahami prompt ini."} AI menemukan ${visibleSales.length} transaksi, ${visibleStock.length} data stok, ${visibleExpired.length} barang expired, dan ${visibleBranches.length} cabang. Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`
+                  ? `${searchResult?.searchPlan?.summary ?? "Pencarian lokal membantu memahami prompt ini."} ${searchResult?.answerText ?? `Total penjualan terkait: ${formatCurrency(totalSales)}, estimasi laba: ${formatCurrency(totalProfit)}.`}`
                   : "Data tidak ditampilkan sebelum ada prompt. Ketik pertanyaan seperti pencarian Google untuk melihat hasil dari dummy data internal."}
               </p>
               {hasQuery && searchPlan ? <p>Kata kunci AI: {searchPlan.keywords.join(", ") || "-"}.</p> : null}
             </div>
           </div>
 
-          {hasResults ? (
+          {summaryOnly && hasQuery ? null : hasResults ? (
             <div className="ai-result-list ai-result-list--single">
               {visibleSales.map((sale) => (
                 <div className="ai-result-row" key={`sale-${sale.branchCode}-${sale.code}-${sale.itemName}`}>

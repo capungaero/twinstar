@@ -83,7 +83,7 @@ export async function inferGeminiSearchPlan(query: string): Promise<GeminiSearch
     "Rules:",
     "- keywords must be short search phrases that help find matching dashboard records.",
     "- branchHints should contain branch names or codes if the query implies a branch.",
-    "- summary should be one concise sentence.",
+    "- summary should be one concise Indonesian sentence.",
     "- confidence must be between 0 and 1.",
     `Query: ${query}`
   ].join("\n");

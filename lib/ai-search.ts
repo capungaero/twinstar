@@ -11,6 +11,8 @@ export type AiSearchResponse = {
   data: DashboardData;
   searchPlan: GeminiSearchPlan | null;
   effectiveQuery: string;
+  summaryOnly: boolean;
+  answerText: string;
   visibleSales: DashboardData["recentSales"];
   visibleStock: StockItem[];
   visibleExpired: DashboardData["expiringProducts"];
@@ -37,12 +39,54 @@ function compactItems(items: string[], limit: number) {
   return items.filter(Boolean).slice(0, limit);
 }
 
+function wantsSummaryOnly(query: string) {
+  return /total(?:nya)?\s+saja|total\s+nya\s+saja|tidak\s+usah\s+(?:tampilkan|pakai)\s+(?:list|daftar)|jangan\s+tampilkan\s+(?:list|daftar)|tanpa\s+(?:list|daftar|rincian)|ringkas\s+saja|jawab\s+saja/i.test(query);
+}
+
+function wantsSalesAggregate(query: string) {
+  return /total|jumlah|berapa|hitung|omzet|penjualan|pendapatan|laba/i.test(query);
+}
+
+function getSalesWindowDays(query: string) {
+  if (/\b2\s*bulan|dua\s+bulan/i.test(query)) return 60;
+  if (/\b3\s*bulan|tiga\s+bulan/i.test(query)) return 90;
+  if (/\b1\s*bulan|satu\s+bulan|bulan\s+terakhir/i.test(query)) return 30;
+  if (/\b7\s*hari|seminggu|minggu\s+terakhir/i.test(query)) return 7;
+  return null;
+}
+
+function isWithinLastDays(dateValue: string | null, days: number) {
+  if (!dateValue) return false;
+  const date = new Date(`${dateValue}T00:00:00+07:00`);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - days);
+  start.setHours(0, 0, 0, 0);
+
+  return date >= start;
+}
+
+function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly" | "visibleSales" | "visibleStock" | "visibleExpired" | "visibleBranches" | "totalResults" | "totalSales" | "totalProfit">) {
+  if (result.summaryOnly && wantsSalesAggregate(result.query)) {
+    return `Total penjualan yang cocok dengan pencarian ini adalah ${formatCurrency(result.totalSales)} dari ${formatNumber(result.totalResults)} transaksi. Estimasi laba: ${formatCurrency(result.totalProfit)}.`;
+  }
+
+  return `AI menemukan ${result.visibleSales.length} transaksi, ${result.visibleStock.length} data stok, ${result.visibleExpired.length} barang expired, dan ${result.visibleBranches.length} cabang. Total penjualan terkait: ${formatCurrency(result.totalSales)}, estimasi laba: ${formatCurrency(result.totalProfit)}.`;
+}
+
 function formatResultLines(result: AiSearchResponse) {
   const lines = [
     `Pencarian AI: ${result.query}`,
     result.searchPlan?.summary ? `Ringkasan: ${result.searchPlan.summary}` : "Ringkasan: pencarian lokal dipakai.",
-    `Hasil: ${result.totalResults} | Penjualan: ${formatCurrency(result.totalSales)} | Laba: ${formatCurrency(result.totalProfit)}`
+    `Hasil: ${result.totalResults} | Penjualan: ${formatCurrency(result.totalSales)} | Laba: ${formatCurrency(result.totalProfit)}`,
+    result.answerText
   ];
+
+  if (result.summaryOnly) {
+    return lines.join("\n");
+  }
 
   const salesLines = compactItems(
     result.visibleSales.map((sale) => `- ${sale.itemName} | ${sale.branchName} | ${formatCurrency(sale.total)} | ${sale.paymentMethod}`),
@@ -85,14 +129,17 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const hasQuery = normalizedQuery.length > 0;
   const searchPlan = hasQuery ? (await inferGeminiSearchPlan(query)) ?? buildFallbackSearchPlan(query) : null;
   const effectiveQuery = hasQuery ? [query, ...(searchPlan?.keywords ?? []), ...(searchPlan?.branchHints ?? [])].join(" ") : "";
+  const summaryOnly = wantsSummaryOnly(query);
+  const salesWindowDays = getSalesWindowDays(query);
   const wantsSales = hasQuery && (searchPlan?.focus === "sales" || searchPlan?.focus === "mixed");
   const wantsStock = hasQuery && (searchPlan?.focus === "stock" || searchPlan?.focus === "mixed");
   const wantsExpired = hasQuery && (searchPlan?.focus === "expired" || searchPlan?.focus === "mixed");
   const wantsBranch = hasQuery && (searchPlan?.focus === "branch" || searchPlan?.focus === "mixed");
   const broadSearch = hasQuery && searchPlan?.focus === "mixed";
 
-  const visibleSales = hasQuery
+  const matchedSales = hasQuery
     ? data.recentSales
+        .filter((sale) => (salesWindowDays ? isWithinLastDays(sale.date, salesWindowDays) : true))
         .map((sale) => ({
           item: sale,
           score: scoreValues(effectiveQuery, [
@@ -111,12 +158,11 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         }))
         .filter((match) => match.score > 0 || wantsSales)
         .sort((a, b) => b.score - a.score || b.item.total - a.item.total)
-        .slice(0, 12)
         .map((match) => match.item)
     : [];
 
   const stockSource = [...data.lowStockProducts, ...data.topStockProducts];
-  const visibleStock = hasQuery
+  const matchedStock = hasQuery
     ? stockSource
         .map((product) => ({
           item: product,
@@ -124,11 +170,10 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         }))
         .filter((match) => match.score > 0 || wantsStock)
         .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
-        .slice(0, 12)
         .map((match) => match.item)
     : [];
 
-  const visibleExpired = hasQuery
+  const matchedExpired = hasQuery
     ? data.expiringProducts
         .map((product) => ({
           item: product,
@@ -136,11 +181,10 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         }))
         .filter((match) => match.score > 0 || wantsExpired)
         .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
-        .slice(0, 10)
         .map((match) => match.item)
     : [];
 
-  const visibleBranches = hasQuery
+  const matchedBranches = hasQuery
     ? data.branchSummaries
         .map((branch) => ({
           item: branch,
@@ -148,23 +192,41 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
         }))
         .filter((match) => match.score > 0 || wantsBranch)
         .sort((a, b) => b.score - a.score || b.item.monthSales - a.item.monthSales)
-        .slice(0, 10)
         .map((match) => match.item)
     : [];
 
-  const filteredSales = wantsSales || broadSearch ? visibleSales : [];
-  const filteredStock = wantsStock || broadSearch ? visibleStock : [];
-  const filteredExpired = wantsExpired || broadSearch ? visibleExpired : [];
-  const filteredBranches = wantsBranch || broadSearch ? visibleBranches : [];
-  const totalResults = filteredSales.length + filteredStock.length + filteredExpired.length + filteredBranches.length;
-  const totalSales = filteredSales.reduce((sum, sale) => sum + sale.total, 0);
-  const totalProfit = filteredSales.reduce((sum, sale) => sum + sale.profit, 0);
+  const allSales = wantsSales || broadSearch ? matchedSales : [];
+  const allStock = wantsStock || broadSearch ? matchedStock : [];
+  const allExpired = wantsExpired || broadSearch ? matchedExpired : [];
+  const allBranches = wantsBranch || broadSearch ? matchedBranches : [];
+  const filteredSales = summaryOnly ? [] : allSales.slice(0, 12);
+  const filteredStock = summaryOnly ? [] : allStock.slice(0, 12);
+  const filteredExpired = summaryOnly ? [] : allExpired.slice(0, 10);
+  const filteredBranches = summaryOnly ? [] : allBranches.slice(0, 10);
+  const totalResults = allSales.length + allStock.length + allExpired.length + allBranches.length;
+  const totalSales = allSales.reduce((sum, sale) => sum + sale.total, 0);
+  const totalProfit = allSales.reduce((sum, sale) => sum + sale.profit, 0);
+  const answerText = hasQuery
+    ? formatAnswerText({
+        query,
+        summaryOnly,
+        visibleSales: filteredSales,
+        visibleStock: filteredStock,
+        visibleExpired: filteredExpired,
+        visibleBranches: filteredBranches,
+        totalResults,
+        totalSales,
+        totalProfit
+      })
+    : "Kirim pertanyaan pencarian untuk mulai menelusuri data POS.";
 
   const response: AiSearchResponse = {
     query,
     data,
     searchPlan,
     effectiveQuery,
+    summaryOnly,
+    answerText,
     visibleSales: filteredSales,
     visibleStock: filteredStock,
     visibleExpired: filteredExpired,
@@ -178,6 +240,8 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
           data,
           searchPlan,
           effectiveQuery,
+          summaryOnly,
+          answerText,
           visibleSales: filteredSales,
           visibleStock: filteredStock,
           visibleExpired: filteredExpired,
