@@ -1655,12 +1655,14 @@ h1 {
 
 .filter-chip {
   min-height: 34px;
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: 999px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   background: #fbfcfe;
   color: var(--muted);
   font-size: 13px;
+  font-weight: 600;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
 
 .filter-chip--active,
@@ -1697,10 +1699,10 @@ h1 {
 
 .stock-toolbar__body {
   display: grid;
-  gap: 14px;
-  padding: 14px;
+  gap: 16px;
+  padding: 16px 18px;
   background:
-    linear-gradient(180deg, #ffffff, #f8fbfd);
+    linear-gradient(180deg, #ffffff, #f5f8fc);
 }
 
 .stock-filter-group {
@@ -1710,9 +1712,10 @@ h1 {
 
 .stock-filter-group > span {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   text-transform: uppercase;
+  letter-spacing: 0.7px;
 }
 
 .stock-search-form {
@@ -1746,11 +1749,11 @@ h1 {
 
 .stock-status-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  min-height: 74px;
-  padding: 13px;
+  border-radius: 12px;
+  min-height: 84px;
+  padding: 16px;
   background: #ffffff;
-  box-shadow: var(--shadow);
+  box-shadow: 0 8px 24px rgba(20, 37, 63, 0.07);
 }
 
 .stock-status-card span,
@@ -1760,14 +1763,17 @@ h1 {
 
 .stock-status-card span {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 800;
   text-transform: uppercase;
+  letter-spacing: 0.7px;
 }
 
 .stock-status-card strong {
-  font-size: 25px;
-  margin-top: 6px;
+  font-size: 28px;
+  margin-top: 7px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
 .stock-status-card--safe {
@@ -1846,7 +1852,8 @@ h1 {
 
 .empty-state--search strong {
   color: var(--text);
-  font-size: 17px;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .pagination-bar {
@@ -1856,10 +1863,12 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 12px 18px;
   color: var(--muted);
   font-size: 13px;
-  background: #fbfcfe;
+  font-weight: 500;
+  background: linear-gradient(0deg, #f5f8fc, #ffffff);
+  border-radius: 0 0 12px 12px;
 }
 
 .pagination-bar div,
@@ -1895,17 +1904,23 @@ h1 {
 
 .sales-dashboard {
   background:
-    linear-gradient(180deg, #fffaf1, #f5f7fb 260px);
+    radial-gradient(ellipse at 60% 0%, rgba(47, 128, 217, 0.08), transparent 42%),
+    linear-gradient(180deg, #f8fbff, #f5f7fb 280px);
 }
 
 .sales-hero {
-  min-height: 98px;
-  border-radius: 8px;
-  padding: 22px 28px;
-  margin-bottom: 16px;
-  background: linear-gradient(135deg, #2f80d9, color-mix(in srgb, var(--branch-color) 45%, #2f80d9));
+  min-height: 110px;
+  border-radius: 14px;
+  padding: 26px 28px;
+  margin-bottom: 18px;
+  background:
+    radial-gradient(ellipse at 8% 20%, rgba(255,255,255,0.22), transparent 30%),
+    radial-gradient(ellipse at 88% 80%, color-mix(in srgb, var(--branch-color) 40%, #2f80d9) 0%, transparent 30%),
+    linear-gradient(135deg, #2563eb, color-mix(in srgb, var(--branch-color) 50%, #2f80d9));
   color: #ffffff;
-  box-shadow: 0 18px 42px rgba(47, 128, 217, 0.22);
+  box-shadow: 0 22px 50px rgba(37, 99, 235, 0.28), 0 0 0 1px rgba(255,255,255,0.12) inset;
+  position: relative;
+  overflow: hidden;
 }
 
 .sales-hero span,
@@ -1915,20 +1930,26 @@ h1 {
 }
 
 .sales-hero span {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
+  letter-spacing: 1.2px;
+  opacity: 0.85;
 }
 
 .sales-hero h1 {
   margin-top: 8px;
-  font-size: 36px;
+  font-size: 34px;
+  font-weight: 800;
   line-height: 1.05;
-  text-transform: uppercase;
+  letter-spacing: -0.03em;
 }
 
 .sales-hero p {
   margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 0.85;
 }
 
 .sales-kpi-grid {
@@ -1939,31 +1960,41 @@ h1 {
 }
 
 .sales-kpi {
-  min-height: 116px;
-  border-radius: 8px;
-  padding: 18px;
+  min-height: 120px;
+  border-radius: 12px;
+  padding: 20px 18px;
   color: #ffffff;
   display: flex;
   align-items: center;
   text-align: center;
   justify-content: center;
-  box-shadow: 0 16px 32px rgba(20, 37, 63, 0.14);
+  box-shadow: 0 18px 36px rgba(20, 37, 63, 0.16);
+  position: relative;
+  overflow: hidden;
+}
+
+.sales-kpi::after {
+  content: "";
+  position: absolute;
+  inset: -40% -20%;
+  background: radial-gradient(ellipse at 80% 20%, rgba(255,255,255,0.18), transparent 55%);
+  pointer-events: none;
 }
 
 .sales-kpi--blue {
-  background: #2f67b3;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
 }
 
 .sales-kpi--purple {
-  background: #887be7;
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
 }
 
 .sales-kpi--cyan {
-  background: #48b8cb;
+  background: linear-gradient(135deg, #0891b2, #0e7490);
 }
 
 .sales-kpi--orange {
-  background: #ffb250;
+  background: linear-gradient(135deg, #ea580c, #c2410c);
 }
 
 .sales-kpi p,
@@ -1973,17 +2004,21 @@ h1 {
 }
 
 .sales-kpi p {
-  font-size: 15px;
+  font-size: 11px;
   font-weight: 800;
   line-height: 1.2;
   text-transform: uppercase;
+  letter-spacing: 0.8px;
+  opacity: 0.9;
 }
 
 .sales-kpi strong {
-  margin-top: 9px;
-  font-size: 30px;
+  margin-top: 10px;
+  font-size: 32px;
+  font-weight: 800;
   line-height: 1.05;
   overflow-wrap: anywhere;
+  letter-spacing: -0.03em;
 }
 
 .sales-kpi span {
@@ -2006,10 +2041,18 @@ h1 {
   margin-bottom: 16px;
 }
 
+.sales-filter-summary .panel {
+  border-radius: 12px;
+}
+
+.sales-chart-grid .panel {
+  border-radius: 12px;
+}
+
 .sales-filter-body {
   display: grid;
   gap: 14px;
-  padding: 14px;
+  padding: 16px 18px;
 }
 
 .sales-branch-select {
@@ -2038,9 +2081,9 @@ h1 {
 .sales-branch-summary div {
   min-height: 62px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
-  background: #fbfcfe;
+  border-radius: 10px;
+  padding: 12px;
+  background: linear-gradient(135deg, #ffffff, #f8fbfd);
 }
 
 .sales-branch-summary span,
@@ -2056,6 +2099,7 @@ h1 {
 .sales-branch-summary strong {
   margin-top: 5px;
   font-size: 15px;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
 
@@ -2181,9 +2225,9 @@ h1 {
 .sales-result-body div {
   min-height: 70px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 12px;
-  background: #fbfcfe;
+  background: linear-gradient(135deg, #ffffff, #f8fbfd);
 }
 
 .sales-result-body span,
@@ -2198,7 +2242,8 @@ h1 {
 
 .sales-result-body strong {
   margin-top: 6px;
-  font-size: 17px;
+  font-size: 16px;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
 
@@ -2231,17 +2276,18 @@ h1 {
 }
 
 .sales-chart-card {
-  box-shadow: 0 16px 34px rgba(20, 37, 63, 0.06);
+  border-radius: 12px;
+  box-shadow: 0 16px 34px rgba(20, 37, 63, 0.07);
 }
 
 .sales-chart-card .panel__header {
-  justify-content: center;
-  text-align: center;
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .sales-chart-card .panel__header h2 {
-  font-size: 18px;
-  text-transform: uppercase;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .sales-category-bars {
