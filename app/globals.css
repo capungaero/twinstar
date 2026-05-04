@@ -289,8 +289,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: Arial, Helvetica, sans-serif;
-  letter-spacing: 0;
+  font-family: "Plus Jakarta Sans", "Inter", system-ui, -apple-system, sans-serif;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
@@ -345,6 +346,8 @@ a {
 
 .brand strong {
   font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .brand span,
@@ -360,19 +363,23 @@ a {
 }
 
 .nav-list__item {
-  min-height: 42px;
-  border-radius: 8px;
+  min-height: 44px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #cbd8dd;
-  padding: 0 12px;
+  color: #b4c5cc;
+  padding: 0 14px;
+  font-weight: 500;
+  font-size: 14px;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .nav-list__item--active,
 .nav-list__item:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
+  font-weight: 700;
 }
 
 .branch-panel {
@@ -440,24 +447,30 @@ a {
 }
 
 .branch-hero {
-  border: 1px solid color-mix(in srgb, var(--branch-color) 35%, #d9e1ea);
-  border-radius: 8px;
-  padding: 18px;
+  border: 2px solid color-mix(in srgb, var(--branch-color) 42%, #d9e1ea);
+  border-radius: 14px;
+  padding: 24px 22px;
   background:
-    radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--branch-color) 24%, transparent), transparent 28%),
-    linear-gradient(120deg, color-mix(in srgb, var(--branch-color) 16%, #ffffff), #ffffff 46%, #f8fbfd);
-  box-shadow: 0 18px 45px rgba(20, 37, 63, 0.08);
+    radial-gradient(ellipse at 5% 15%, color-mix(in srgb, var(--branch-color) 30%, transparent), transparent 35%),
+    radial-gradient(ellipse at 90% 85%, color-mix(in srgb, var(--branch-color) 18%, transparent), transparent 28%),
+    linear-gradient(135deg, color-mix(in srgb, var(--branch-color) 20%, #ffffff), #ffffff 52%, #f4f7fc);
+  box-shadow: 0 20px 54px rgba(20, 37, 63, 0.1), 0 0 0 1px color-mix(in srgb, var(--branch-color) 15%, transparent);
+  position: relative;
+  overflow: hidden;
 }
 
 .branch-hero h1 {
   color: #0b1f2a;
+  font-weight: 800;
+  letter-spacing: -0.03em;
 }
 
 .eyebrow {
-  color: var(--primary);
-  font-size: 13px;
-  font-weight: 700;
+  color: var(--branch-color, var(--primary));
+  font-size: 11px;
+  font-weight: 800;
   text-transform: uppercase;
+  letter-spacing: 1.2px;
 }
 
 h1,
@@ -468,6 +481,7 @@ p {
 
 h1 {
   font-size: 32px;
+  font-weight: 800;
   line-height: 1.15;
   margin-top: 4px;
 }
@@ -475,6 +489,8 @@ h1 {
 .topbar p {
   color: var(--muted);
   margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .actions {
@@ -489,16 +505,20 @@ h1 {
   background: var(--surface);
   color: var(--text);
   min-height: 40px;
-  padding: 0 13px;
-  border-radius: 8px;
+  padding: 0 14px;
+  border-radius: 9px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .icon-button:hover {
-  border-color: #b9c6d3;
+  border-color: #9eb5ca;
+  box-shadow: 0 4px 12px rgba(20, 37, 63, 0.08);
 }
 
 .icon-button--disabled {
@@ -590,8 +610,8 @@ h1 {
 
 .branch-icon {
   color: var(--branch-color);
-  background: color-mix(in srgb, var(--branch-color) 14%, #ffffff);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--branch-color) 20%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--branch-color) 18%, #ffffff), color-mix(in srgb, var(--branch-color) 10%, #f8fbfd));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--branch-color) 24%, transparent), 0 6px 16px color-mix(in srgb, var(--branch-color) 20%, transparent);
 }
 
 .branch-icon--warning {
@@ -611,15 +631,20 @@ h1 {
 
 .metric-card p {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .metric-card strong {
   display: block;
-  font-size: 22px;
-  line-height: 1.25;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.2;
   margin-top: 3px;
   overflow-wrap: anywhere;
+  letter-spacing: -0.02em;
 }
 
 .metric-card span {
@@ -1594,13 +1619,22 @@ h1 {
 .field input,
 .field select {
   width: 100%;
-  min-height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  min-height: 42px;
+  border: 1.5px solid var(--border);
+  border-radius: 9px;
   background: #ffffff;
   color: var(--text);
-  padding: 0 10px;
+  padding: 0 12px;
   font: inherit;
+  font-size: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.field input:focus,
+.field select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
 }
 
 .form-button {
@@ -2311,24 +2345,31 @@ h1 {
 
 .panel__header {
   min-height: 68px;
-  padding: 15px 16px;
+  padding: 16px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #ffffff, #fafcfe);
 }
 
 .panel__header span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.8px;
 }
 
 .panel__header h2 {
-  font-size: 18px;
+  font-size: 17px;
+  font-weight: 700;
   margin-top: 3px;
+}
+
+.panel__header h2 svg {
+  color: var(--primary);
 }
 
 .table-wrap {
@@ -2351,8 +2392,11 @@ td {
 
 th {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 800;
   text-transform: uppercase;
+  letter-spacing: 0.7px;
+  background: #f5f8fb;
 }
 
 td:nth-child(2) {
@@ -2454,7 +2498,7 @@ td:nth-child(2) {
 
 .branch-selector--colorful .branch-tabs {
   background:
-    linear-gradient(180deg, #ffffff, #f8fbfd);
+    linear-gradient(180deg, #ffffff, #f4f7fc);
 }
 
 .branch-tabs {
@@ -2478,30 +2522,31 @@ td:nth-child(2) {
 }
 
 .branch-tab {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  min-height: 70px;
-  padding: 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  min-height: 84px;
+  padding: 14px 14px 14px 18px;
   background: #fbfcfe;
   position: relative;
   overflow: hidden;
-  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
 }
 
 .branch-tab::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 5px;
-  background: var(--branch-color);
+  width: 6px;
+  background: linear-gradient(180deg, var(--branch-color), color-mix(in srgb, var(--branch-color) 70%, #000000));
+  border-radius: 12px 0 0 12px;
 }
 
 .branch-tab:hover,
 .branch-tab--active {
   border-color: color-mix(in srgb, var(--branch-color) 55%, var(--border));
-  background: color-mix(in srgb, var(--branch-color) 10%, #ffffff);
-  box-shadow: 0 12px 24px rgba(20, 37, 63, 0.08);
-  transform: translateY(-1px);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--branch-color) 16%, #ffffff), color-mix(in srgb, var(--branch-color) 7%, #f8fbfd));
+  box-shadow: 0 14px 32px rgba(20, 37, 63, 0.1), 0 0 0 1px color-mix(in srgb, var(--branch-color) 28%, transparent);
+  transform: translateY(-2px);
 }
 
 .branch-tab span,
@@ -2517,26 +2562,40 @@ td:nth-child(2) {
 .branch-tab__code {
   display: inline-flex !important;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
+  font-weight: 800;
+  font-size: 12px;
+  color: var(--branch-color);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .branch-tab__code i {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--branch-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--branch-color) 16%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--branch-color) 22%, transparent);
 }
 
 .branch-tab strong {
   font-size: 14px;
+  font-weight: 700;
   line-height: 1.25;
-  margin-top: 4px;
+  margin-top: 6px;
   padding-left: 1px;
+  color: var(--text);
 }
 
 .detail-metrics {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 18px;
+}
+
+.detail-metrics .metric-card {
+  border-radius: 12px;
+  padding: 17px;
+  background: linear-gradient(135deg, #ffffff, #f9fbfd);
 }
 
 .danger-text {
@@ -2547,16 +2606,22 @@ td:nth-child(2) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  font-weight: 700;
+  font-size: 11px;
+  padding: 5px 9px;
+  border-radius: 999px;
 }
 
 .branch-status-badge--safe {
   color: var(--branch-color);
   background: color-mix(in srgb, var(--branch-color) 14%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--branch-color) 28%, transparent);
 }
 
 .branch-status-badge--warning {
   color: var(--warning);
   background: #fffaeb;
+  border: 1px solid #fedf89;
 }
 
 .branch-status-badge--danger {
@@ -2568,6 +2633,38 @@ td:nth-child(2) {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  font-weight: 700;
+}
+
+/* ===== Cabang page — section-level accent ===== */
+.branch-selector.panel,
+.management-grid .panel,
+.search-panel,
+.dashboard-grid .panel {
+  border-radius: 12px;
+}
+
+.management-grid .panel .panel__header h2 svg,
+.search-panel .panel__header h2 svg {
+  color: var(--primary);
+}
+
+/* Compact-list improvements */
+.compact-list strong {
+  font-weight: 700;
+}
+
+.compact-list b {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--primary-dark);
+}
+
+/* Pagination bar */
+.stock-pagination {
+  background: linear-gradient(0deg, #f5f8fc, #ffffff);
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 12px 12px;
 }
 
 @media (max-width: 1100px) {
