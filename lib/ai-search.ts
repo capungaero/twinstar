@@ -348,6 +348,12 @@ function formatAnswerText(result: Pick<AiSearchResponse, "query" | "summaryOnly"
   return `Ditemukan ${formatNumber(result.totalResults)} hasil terkait: ${result.visibleSales.length} transaksi, ${result.visibleStock.length} data stok, ${result.visibleExpired.length} barang expired, dan ${result.visibleBranches.length} cabang. Total penjualan: ${formatCurrency(result.totalSales)}.`;
 }
 
+function stripScore<T extends { _score: number }>(item: T): Omit<T, "_score"> {
+  const { _score, ...result } = item;
+  void _score;
+  return result;
+}
+
 function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan = buildFallbackSearchPlan(query)) {
   const normalizedQuery = normalize(query);
   const branchFilter = getBranchCodeFilter(query);
@@ -359,6 +365,7 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
   const includeExpired = searchPlan.focus === "expired" || searchPlan.focus === "mixed";
   const includeBranches = searchPlan.focus === "branch" || searchPlan.focus === "mixed";
   const availableStockOnly = includeStock && wantsAvailableStock(query);
+  const broadSearch = queryTokens.length === 0 || searchPlan.focus === "mixed" || searchPlan.mode === "reasoning";
   const filterBranch = (branchName?: string, branchCode?: string) => matchesBranch(branchCode, branchName, branchFilter);
 
   const databaseStock = includeStock ? stockSource
@@ -370,9 +377,15 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
       name: product.name,
       branchName: product.branchName,
       category: getProductCategory(product.name),
+      semanticText: getProductSemanticText(product.name),
       stock: product.stock,
-      price: product.price
-    })) : [];
+      price: product.price,
+      _score: scoreValues(queryTokens, [product.code, product.branchName, product.name, getProductCategory(product.name), getProductSemanticText(product.name), product.stock, product.price])
+    }))
+    .filter((product) => broadSearch || product._score > 0)
+    .sort((left, right) => right._score - left._score || left.stock - right.stock)
+    .slice(0, 80)
+    .map(stripScore) : [];
 
   const databaseSales = includeSales ? data.recentSales
     .filter((sale) => (salesWindowDays ? isWithinLastDays(sale.date, salesWindowDays) : true))
@@ -389,8 +402,13 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
       total: sale.total,
       profit: sale.profit,
       customer: sale.customer,
-      status: sale.status
-    })) : [];
+      status: sale.status,
+      _score: scoreValues(queryTokens, [sale.code, sale.branchCode, sale.branchName, sale.customer, sale.cashier, sale.itemName, sale.category, sale.paymentMethod, sale.status, sale.total, sale.profit])
+    }))
+    .filter((sale) => broadSearch || sale._score > 0 || wantsSalesAggregate(query))
+    .sort((left, right) => right._score - left._score || right.total - left.total)
+    .slice(0, searchPlan.mode === "reasoning" ? 200 : 80)
+    .map(stripScore) : [];
 
   const databaseExpired = includeExpired ? data.expiringProducts
     .filter((product) => filterBranch(product.branchName))
@@ -401,19 +419,31 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
       branchName: product.branchName,
       expiredAt: product.expiredAt,
       status: product.status,
-      stock: product.stock
-    })) : [];
+      stock: product.stock,
+      _score: scoreValues(queryTokens, [product.code, product.branchName, product.name, product.status, product.expiredAt, product.stock])
+    }))
+    .filter((product) => broadSearch || product._score > 0)
+    .sort((left, right) => right._score - left._score || left.stock - right.stock)
+    .slice(0, 60)
+    .map(stripScore) : [];
 
-  const databaseBranches = includeBranches ? data.branchSummaries.map((branch) => ({
-    searchKey: getBranchKey(branch),
-    code: branch.code,
-    name: branch.name,
-    status: branch.status,
-    transactions: branch.transactions,
-    monthSales: branch.monthSales,
-    stockLimit: branch.stockLimit,
-    topProduct: branch.topProduct
-  })) : [];
+  const databaseBranches = includeBranches ? data.branchSummaries
+    .map((branch) => ({
+      searchKey: getBranchKey(branch),
+      code: branch.code,
+      name: branch.name,
+      status: branch.status,
+      transactions: branch.transactions,
+      monthSales: branch.monthSales,
+      stockLimit: branch.stockLimit,
+      topProduct: branch.topProduct,
+      _score: scoreValues(queryTokens, [branch.code, branch.name, branch.status, branch.topProduct, branch.transactions, branch.monthSales])
+    }))
+    .filter((branch) => filterBranch(branch.name, branch.code))
+    .filter((branch) => broadSearch || branch._score > 0)
+    .sort((left, right) => right._score - left._score || right.monthSales - left.monthSales)
+    .slice(0, 40)
+    .map(stripScore) : [];
 
   return {
     queryContext: {
@@ -421,6 +451,7 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
       branchFilter,
       salesWindowDays,
       queryTokens,
+      searchFocus: searchPlan.focus,
       searchMode: searchPlan.mode,
       searchSummary: searchPlan.summary
     },
@@ -442,14 +473,8 @@ function resolveGeminiSelection(data: DashboardData, resultKeys: GeminiResultKey
   const branchKeys = new Set(resultKeys.branches.map(normalize));
   const hasSelection = salesKeys.size > 0 || stockKeys.size > 0 || expiredKeys.size > 0 || branchKeys.size > 0;
 
-  if (!hasSelection) {
-    return {
-      sales: [] as DashboardData["recentSales"],
-      stock: [] as StockItem[],
-      expired: [] as DashboardData["expiringProducts"],
-      branches: [] as DashboardData["branchSummaries"]
-    };
-  }
+  if (!hasSelection) return null;
+
 
   const stockSource = [...data.lowStockProducts, ...data.topStockProducts];
 
