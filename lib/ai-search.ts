@@ -1,4 +1,4 @@
-import { answerGeminiFromData, buildFallbackSearchPlan, inferGeminiSearchPlan, type GeminiSearchPlan } from "@/lib/gemini";
+import { answerGeminiFromData, buildFallbackSearchPlan, type GeminiSearchPlan } from "@/lib/gemini";
 import { getProductCategory } from "@/lib/filters";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { getDashboardData } from "@/lib/legacy-db";
@@ -37,6 +37,7 @@ function normalize(value: string) {
 }
 
 const SEARCH_STOP_WORDS = new Set([
+  "ada",
   "ai",
   "ambil",
   "barang",
@@ -384,7 +385,7 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
     }))
     .filter((product) => broadSearch || product._score > 0)
     .sort((left, right) => right._score - left._score || left.stock - right.stock)
-    .slice(0, 80)
+    .slice(0, 32)
     .map(stripScore) : [];
 
   const databaseSales = includeSales ? data.recentSales
@@ -407,7 +408,7 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
     }))
     .filter((sale) => broadSearch || sale._score > 0 || wantsSalesAggregate(query))
     .sort((left, right) => right._score - left._score || right.total - left.total)
-    .slice(0, searchPlan.mode === "reasoning" ? 200 : 80)
+    .slice(0, searchPlan.mode === "reasoning" ? 80 : 32)
     .map(stripScore) : [];
 
   const databaseExpired = includeExpired ? data.expiringProducts
@@ -424,7 +425,7 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
     }))
     .filter((product) => broadSearch || product._score > 0)
     .sort((left, right) => right._score - left._score || left.stock - right.stock)
-    .slice(0, 60)
+    .slice(0, 24)
     .map(stripScore) : [];
 
   const databaseBranches = includeBranches ? data.branchSummaries
@@ -442,7 +443,7 @@ function buildGeminiDataSnapshot(data: DashboardData, query: string, searchPlan 
     .filter((branch) => filterBranch(branch.name, branch.code))
     .filter((branch) => broadSearch || branch._score > 0)
     .sort((left, right) => right._score - left._score || right.monthSales - left.monthSales)
-    .slice(0, 40)
+    .slice(0, 20)
     .map(stripScore) : [];
 
   return {
@@ -492,12 +493,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const hasQuery = normalizedQuery.length > 0;
   const conversational = hasQuery && isConversationalQuery(query);
   const useGeminiSearch = Boolean(process.env.GEMINI_API_KEY?.trim()) && process.env.AI_SEARCH_GEMINI !== "false";
-  const searchPlan = hasQuery
-    ? refineSearchPlan(
-      query,
-      useGeminiSearch ? (await inferGeminiSearchPlan(normalizedQuery)) ?? buildFallbackSearchPlan(normalizedQuery) : buildFallbackSearchPlan(normalizedQuery)
-    )
-    : null;
+  const searchPlan = hasQuery ? refineSearchPlan(query, buildFallbackSearchPlan(normalizedQuery)) : null;
   const searchTerms = hasQuery ? extractSearchTerms(query, searchPlan) : [];
   const effectiveQuery = searchTerms.length ? searchTerms.join(" ") : normalizedQuery;
   const salesAggregate = wantsSalesAggregate(query);
@@ -507,7 +503,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
   const lowStockOnly = isLowStockQuery(query);
   const vectorResults = hasQuery && !conversational ? getVectorSearchResults(data, [normalizedQuery, effectiveQuery, searchPlan?.summary, ...(searchPlan?.keywords ?? [])].filter(Boolean).join(" ")) : null;
   const salesSource = vectorResults?.sales.length ? vectorResults.sales : data.recentSales;
-  const stockSourceBase = vectorResults?.stock.length ? vectorResults.stock : [...data.lowStockProducts, ...data.topStockProducts];
+  const stockSourceBase = [...data.lowStockProducts, ...data.topStockProducts];
   const expiredSource = vectorResults?.expired.length ? vectorResults.expired : data.expiringProducts;
   const branchSource = vectorResults?.branches.length ? vectorResults.branches : data.branchSummaries;
   const wantsSales = hasQuery && (searchPlan?.focus === "sales" || searchPlan?.focus === "mixed");
@@ -552,7 +548,7 @@ export async function buildAiSearchResponse(query: string): Promise<AiSearchResp
           item: product,
           score: scoreValues(searchTerms, [product.code, product.branchName, product.name, getProductCategory(product.name), getProductSemanticText(product.name), product.stock, product.price])
         }))
-        .filter((match) => searchTerms.length === 0 || match.score > 0 || broadSearch)
+        .filter((match) => searchTerms.length === 0 || match.score > 0)
         .sort((a, b) => b.score - a.score || a.item.stock - b.item.stock)
         .map((match) => match.item)
     : [];

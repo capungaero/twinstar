@@ -54,8 +54,8 @@ function getGeminiModels() {
 }
 
 function getGeminiTimeoutMs() {
-  const configuredTimeout = Number(process.env.GEMINI_TIMEOUT_MS ?? 8000);
-  return Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 8000;
+  const configuredTimeout = Number(process.env.GEMINI_TIMEOUT_MS ?? 4000);
+  return Number.isFinite(configuredTimeout) && configuredTimeout > 0 ? configuredTimeout : 4000;
 }
 
 function normalizeArray(values: unknown, limit: number) {
