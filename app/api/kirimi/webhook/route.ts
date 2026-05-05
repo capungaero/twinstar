@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { buildAiSearchResponse } from "@/lib/ai-search";
 import { normalizeKirimiPhoneNumber, sendKirimiMessage } from "@/lib/kirimi";
+import { appendKirimiInboxItem } from "@/lib/kirimi-inbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -173,6 +174,14 @@ export async function POST(request: Request) {
 
   if (isOutgoingMessage(body) || /^Pencarian AI:/i.test(incomingText.trim())) {
     return NextResponse.json({ ok: true, handled: false, reason: "Outgoing or bot reply ignored" });
+  }
+
+  // Simpan pesan masuk ke inbox
+  try {
+    await appendKirimiInboxItem(body, incomingNumber, targetNumber, incomingText);
+  } catch (inboxError) {
+    console.error("Failed to save Kirimi message to inbox:", inboxError);
+    // Jangan hentikan proses jika gagal simpan inbox
   }
 
   const query = stripAiPrefix(incomingText);

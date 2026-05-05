@@ -437,13 +437,27 @@ a {
 }
 
 .hero-dashboard {
-  border: 1px solid #bcd7ef;
-  border-radius: 8px;
-  padding: 18px;
+  border: 1.5px solid #b8d4ee;
+  border-radius: 14px;
+  padding: 24px 22px;
   background:
-    linear-gradient(120deg, rgba(14, 165, 233, 0.16), rgba(22, 160, 133, 0.14) 42%, rgba(249, 115, 22, 0.1)),
+    radial-gradient(ellipse at 6% 20%, rgba(14, 165, 233, 0.18), transparent 32%),
+    radial-gradient(ellipse at 88% 80%, rgba(22, 160, 133, 0.14), transparent 28%),
+    linear-gradient(120deg, rgba(14, 165, 233, 0.10), rgba(22, 160, 133, 0.08) 44%, rgba(249, 115, 22, 0.06)),
     #ffffff;
-  box-shadow: 0 18px 45px rgba(20, 37, 63, 0.08);
+  box-shadow: 0 20px 50px rgba(20, 37, 63, 0.09), 0 0 0 1px rgba(14, 165, 233, 0.08) inset;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-dashboard h1 {
+  color: #0b1f2a;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.hero-dashboard .eyebrow {
+  color: var(--primary);
 }
 
 .branch-hero {
@@ -1754,6 +1768,34 @@ h1 {
   padding: 16px;
   background: #ffffff;
   box-shadow: 0 8px 24px rgba(20, 37, 63, 0.07);
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 14px;
+  align-items: center;
+}
+
+.stock-status-card__icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.stock-status-card--safe .stock-status-card__icon {
+  background: linear-gradient(135deg, #d1fae5, #ecfdf3);
+  color: var(--success);
+}
+
+.stock-status-card--warning .stock-status-card__icon {
+  background: linear-gradient(135deg, #fef3c7, #fff7ed);
+  color: var(--warning);
+}
+
+.stock-status-card--danger .stock-status-card__icon {
+  background: linear-gradient(135deg, #fee2e2, #fff4f2);
+  color: var(--danger);
 }
 
 .stock-status-card span,
@@ -1774,6 +1816,13 @@ h1 {
   margin-top: 7px;
   font-weight: 800;
   letter-spacing: -0.03em;
+}
+
+/* Stok page content background */
+.stok-content {
+  background:
+    radial-gradient(ellipse at 70% 0%, rgba(22, 160, 133, 0.07), transparent 40%),
+    linear-gradient(180deg, #f6faf8, #f5f7fb 240px);
 }
 
 .stock-status-card--safe {

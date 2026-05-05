@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, Boxes, Building2, Database, Filter, Layers3, PackageCheck, ReceiptText, Search, TrendingUp } from "lucide-react";
+import { AlertTriangle, Bot, Boxes, Building2, Clock3, Database, Filter, Layers3, PackageCheck, PackageMinus, ReceiptText, RefreshCcw, Search, ShieldCheck, TrendingUp } from "lucide-react";
 import Link from "next/link";
 import { getBranchColor } from "@/lib/branch-colors";
 import { getDashboardData } from "@/lib/legacy-db";
@@ -99,23 +99,44 @@ export default async function StokPage({ searchParams }: PageProps) {
     return `/stok?${query.toString()}`;
   };
   const statusTiles = [
-    { label: "Aman", value: hasActiveFilter ? safeStock.length : 0, tone: "safe" },
-    { label: "Limit", value: hasActiveFilter ? lowStock.length : 0, tone: "warning" },
-    { label: "Expired", value: hasActiveFilter ? expiredStock.filter((item) => item.status === "expired").length : 0, tone: "danger" },
-    { label: "Mendekati", value: hasActiveFilter ? expiredStock.filter((item) => item.status === "soon").length : 0, tone: "warning" }
+    { label: "Aman", value: hasActiveFilter ? safeStock.length : 0, tone: "safe", icon: <PackageCheck size={22} /> },
+    { label: "Stok Limit", value: hasActiveFilter ? lowStock.length : 0, tone: "warning", icon: <PackageMinus size={22} /> },
+    { label: "Expired", value: hasActiveFilter ? expiredStock.filter((item) => item.status === "expired").length : 0, tone: "danger", icon: <AlertTriangle size={22} /> },
+    { label: "Mendekati Exp", value: hasActiveFilter ? expiredStock.filter((item) => item.status === "soon").length : 0, tone: "warning", icon: <Clock3 size={22} /> }
   ];
 
   return (
     <main className="shell">
       <Sidebar />
-      <section className="content">
-        <header className="topbar branch-hero" style={{ "--branch-color": selectedColor } as React.CSSProperties}>
+      <section className="content stok-content">
+        <header className="topbar hero-dashboard">
           <div>
-            <span className="eyebrow">Stock Barang</span>
-            <h1>Stok</h1>
+            <span className="eyebrow">Manajemen Stok · {data.branches.length} Cabang</span>
+            <h1>Stok Barang</h1>
             <p>Lihat stok berdasarkan item, cabang, dan status termasuk mendekati expired.</p>
           </div>
+          <div className="actions">
+            <Link className="icon-button" href="/stok" title="Reset semua filter">
+              <RefreshCcw size={18} />
+              Reset
+            </Link>
+          </div>
         </header>
+
+        <section className="sync-strip">
+          <div>
+            <Boxes size={18} />
+            <span>Tampilan: {selectedView === "item" ? "Per item" : "Per cabang"}</span>
+          </div>
+          <div>
+            <Building2 size={18} />
+            <span>Cabang: {selectedBranch === "ALL" ? "Semua cabang" : (selectedBranchName ?? selectedBranch)}</span>
+          </div>
+          <div>
+            <ShieldCheck size={18} />
+            <span>Data simulasi dummy aktif</span>
+          </div>
+        </section>
 
         <section className="branch-selector panel stock-toolbar">
           <div className="panel__header">
@@ -207,8 +228,11 @@ export default async function StokPage({ searchParams }: PageProps) {
         <section className="stock-status-strip">
           {statusTiles.map((tile) => (
             <article className={`stock-status-card stock-status-card--${tile.tone}`} key={tile.label}>
-              <span>{tile.label}</span>
-              <strong>{formatNumber(tile.value)}</strong>
+              <div className="stock-status-card__icon">{tile.icon}</div>
+              <div>
+                <span>{tile.label}</span>
+                <strong>{formatNumber(tile.value)}</strong>
+              </div>
             </article>
           ))}
         </section>

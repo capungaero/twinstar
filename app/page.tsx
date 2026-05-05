@@ -8,6 +8,7 @@ import {
   Clock3,
   Database,
   Download,
+  MessageSquare,
   RefreshCcw,
   ReceiptText,
   ShieldCheck,
@@ -92,6 +93,10 @@ function Sidebar({ connected, branchCount }: { connected: boolean; branchCount: 
         <Link className="nav-list__item" href="/pencarian-ai">
           <Bot size={18} />
           Pencarian AI
+        </Link>
+        <Link className="nav-list__item" href="/monitor-pesan">
+          <MessageSquare size={18} />
+          Monitor Pesan
         </Link>
         <a className="nav-list__item" href="#monitor">
           <Database size={18} />
