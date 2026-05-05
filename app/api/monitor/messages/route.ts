@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     if (!source || source === "telegram") {
       const telegramMessages = await readTelegramInbox(limit);
       results.push(
-        ...telegramMessages.map((item, idx) => ({
+        ...telegramMessages.map((item) => ({
           id: `telegram-${item.updateId}`,
           source: "telegram" as const,
           timestamp: item.receivedAt,
@@ -45,11 +45,11 @@ export async function GET(request: Request) {
       const kirimiMessages = await readKirimiInbox(limit);
       results.push(
         ...kirimiMessages.map((item) => ({
-          id: `kirimi-${item.receivedAt}-${item.fromPhone}`,
+          id: `kirimi-${item.id ?? item.received_at}-${item.from_phone}`,
           source: "kirimi" as const,
-          timestamp: item.receivedAt,
-          sender: item.fromPhone,
-          senderPhone: item.fromPhone,
+          timestamp: item.received_at,
+          sender: item.from_phone,
+          senderPhone: item.from_phone,
           text: item.text,
           kind: item.kind,
           isAiRequest: item.kind === "ai_request"

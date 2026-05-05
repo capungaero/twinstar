@@ -164,9 +164,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, handled: false, reason: "Invalid JSON" }, { status: 400 });
   }
 
+  // Log raw payload untuk debugging (terlihat di Vercel Function Logs)
+  console.log("[kirimi-webhook] RAW PAYLOAD:", JSON.stringify(body, null, 2));
+
   const incomingText = extractIncomingText(body);
   const incomingNumber = normalizeKirimiPhoneNumber(extractIncomingNumber(body));
   const targetNumber = normalizeKirimiPhoneNumber(process.env.KIRIMI_TARGET_NUMBER || process.env.KIRIMI_REPLY_TO_NUMBER || "085272447141");
+
+  console.log("[kirimi-webhook] extracted text:", incomingText, "| from:", incomingNumber, "| isOutgoing:", isOutgoingMessage(body));
 
   if (!incomingText) {
     return NextResponse.json({ ok: true, handled: false, reason: "No text message" });
