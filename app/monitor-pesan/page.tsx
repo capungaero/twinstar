@@ -1,7 +1,7 @@
 ﻿"use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { MessageSquare, AlertCircle, RefreshCw, Brain, ChevronDown, ChevronUp, Users } from "lucide-react";
+import React, { useEffect, useState, useCallback } from "react";
+import { MessageSquare, AlertCircle, RefreshCw, Brain, ChevronDown, ChevronUp, Users, BarChart2, Smartphone, MessageCircle, Bot, Phone } from "lucide-react";
 import type { MonitorMessage } from "@/app/api/monitor/messages/route";
 import type { AttendanceReport, AttendanceEntry } from "@/app/api/monitor/attendance/route";
 
@@ -93,7 +93,7 @@ export default function MonitorPesanPage() {
     hadir: "#10b981", absen: "#ef4444", izin: "#f59e0b", sakit: "#3b82f6", terlambat: "#f97316"
   };
   const statusIcon: Record<string, string> = {
-    hadir: "âœ…", absen: "âŒ", izin: "ðŸŸ¡", sakit: "ðŸ¤’", terlambat: "â°"
+    hadir: "✓", absen: "✗", izin: "~", sakit: "+", terlambat: "!"
   };
 
   return (
@@ -107,10 +107,10 @@ export default function MonitorPesanPage() {
 
         {/* Stats */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "20px" }}>
-          <StatCard label="Total Pesan" value={messages.length} icon="ðŸ“Š" color="#3b82f6" />
-          <StatCard label="Telegram" value={telegramCount} icon="ðŸ“±" color="#0088cc" />
-          <StatCard label="WhatsApp" value={kirimiCount} icon="ðŸ’¬" color="#25d366" />
-          <StatCard label="AI Request" value={aiRequestCount} icon="ðŸ¤–" color="#f59e0b" />
+          <StatCard label="Total Pesan" value={messages.length} icon={<BarChart2 size={20} />} color="#3b82f6" />
+          <StatCard label="Telegram" value={telegramCount} icon={<Smartphone size={20} />} color="#0088cc" />
+          <StatCard label="WhatsApp" value={kirimiCount} icon={<MessageCircle size={20} />} color="#25d366" />
+          <StatCard label="AI Request" value={aiRequestCount} icon={<Bot size={20} />} color="#f59e0b" />
         </div>
 
         {/* === PANEL ANALISA AI ABSENSI === */}
@@ -263,10 +263,10 @@ function AttendanceRow({ entry, statusColor, statusIcon }: { entry: AttendanceEn
   );
 }
 
-function StatCard({ label, value, icon, color }: { label: string; value: number; icon: string; color: string }) {
+function StatCard({ label, value, icon, color }: { label: string; value: number; icon: React.ReactNode; color: string }) {
   return (
     <div style={{ backgroundColor: "white", padding: "16px 20px", borderRadius: "8px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)", borderLeft: `4px solid ${color}` }}>
-      <div style={{ fontSize: "20px", marginBottom: "6px" }}>{icon}</div>
+      <div style={{ marginBottom: "6px", color }}>{icon}</div>
       <div style={{ fontSize: "11px", color: "#999", marginBottom: "3px" }}>{label}</div>
       <div style={{ fontSize: "26px", fontWeight: "bold", color }}>{value}</div>
     </div>
@@ -279,7 +279,7 @@ function MessageRow({ message, selectable, selected, onSelect }: { message: Moni
   });
   const sourceColor = message.source === "telegram" ? "#0088cc" : "#25d366";
   const sourceLabel = message.source === "telegram" ? "Telegram" : "WhatsApp";
-  const sourceIcon = message.source === "telegram" ? "ðŸ“±" : "ðŸ’¬";
+  const SourceIcon = message.source === "telegram" ? Smartphone : MessageCircle;
   const displayName = message.senderName || message.sender;
   const isMedia = message.messageType && !["text", "chat", "extendedtext", ""].includes(message.messageType.toLowerCase());
 
@@ -291,14 +291,14 @@ function MessageRow({ message, selectable, selected, onSelect }: { message: Moni
       {selectable && (
         <input type="checkbox" checked={!!selected} onChange={onSelect} onClick={(e) => e.stopPropagation()} style={{ marginTop: "4px", flexShrink: 0, accentColor: "#7c3aed" }} />
       )}
-      <div style={{ fontSize: "16px", marginTop: "3px" }}>{sourceIcon}</div>
+      <SourceIcon size={16} style={{ marginTop: "3px", flexShrink: 0, color: sourceColor }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "4px", gap: "8px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
             <strong style={{ color: "#333", fontSize: "13px" }}>{displayName}</strong>
             {message.senderName && message.senderPhone && <span style={{ fontSize: "11px", color: "#bbb" }}>{message.senderPhone}</span>}
             <span style={{ fontSize: "11px", padding: "1px 7px", backgroundColor: sourceColor, color: "white", borderRadius: "3px" }}>{sourceLabel}</span>
-            {message.isFromGroup && <span style={{ fontSize: "11px", padding: "1px 7px", backgroundColor: "#6366f1", color: "white", borderRadius: "3px" }}>Grup {message.groupId ? `Â· ${message.groupId}` : ""}</span>}
+            {message.isFromGroup && <span style={{ fontSize: "11px", padding: "1px 7px", backgroundColor: "#6366f1", color: "white", borderRadius: "3px" }}>Grup {message.groupId ? `· ${message.groupId}` : ""}</span>}
             {isMedia && <span style={{ fontSize: "11px", padding: "1px 7px", backgroundColor: "#64748b", color: "white", borderRadius: "3px" }}>{message.messageType}</span>}
             {message.isAiRequest && <span style={{ fontSize: "11px", padding: "1px 7px", backgroundColor: "#f59e0b", color: "white", borderRadius: "3px" }}>AI Request</span>}
           </div>
