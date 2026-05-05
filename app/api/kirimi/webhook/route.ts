@@ -176,12 +176,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, handled: false, reason: "Outgoing or bot reply ignored" });
   }
 
-  // Simpan pesan masuk ke inbox
+  // Simpan SEMUA pesan masuk ke inbox
   try {
     await appendKirimiInboxItem(body, incomingNumber, targetNumber, incomingText);
   } catch (inboxError) {
     console.error("Failed to save Kirimi message to inbox:", inboxError);
-    // Jangan hentikan proses jika gagal simpan inbox
+  }
+
+  // Auto-reply AI hanya aktif jika pesan diawali /ai: atau /ai <spasi>
+  const autoReplyEnabled = process.env.KIRIMI_AUTO_REPLY === "true";
+  if (!autoReplyEnabled) {
+    return NextResponse.json({ ok: true, handled: true, reason: "Auto-reply disabled, message saved to inbox" });
+  }
+
+  // Hanya proses jika pesan diawali dengan perintah /ai
+  const isAiCommand = /^\/ai\s*:/i.test(incomingText.trim());
+  if (!isAiCommand) {
+    return NextResponse.json({ ok: true, handled: false, reason: "Not an AI command, message saved to inbox only" });
   }
 
   const query = stripAiPrefix(incomingText);
