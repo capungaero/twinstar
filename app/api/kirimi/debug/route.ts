@@ -1,17 +1,16 @@
 import { NextResponse } from "next/server";
+import { supabaseInsert, supabaseSelect } from "@/lib/supabase";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Simpan last 20 payload mentah di memory (hilang saat restart, cukup untuk debug)
-const debugLog: Array<{ receivedAt: string; headers: Record<string, string>; body: unknown }> = [];
-
 export async function GET() {
-  return NextResponse.json({
-    ok: true,
-    count: debugLog.length,
-    entries: debugLog.slice(-20).reverse()
-  });
+  try {
+    const rows = await supabaseSelect("kirimi_debug_log", { limit: "20" });
+    return NextResponse.json({ ok: true, count: rows.length, entries: rows });
+  } catch {
+    return NextResponse.json({ ok: false, error: "kirimi_debug_log table not yet created" });
+  }
 }
 
 export async function POST(request: Request) {
@@ -22,14 +21,16 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => null);
 
-  debugLog.push({
-    receivedAt: new Date().toISOString(),
-    headers,
-    body
-  });
+  console.log("[kirimi-debug] RAW PAYLOAD:", JSON.stringify(body, null, 2));
 
-  if (debugLog.length > 20) {
-    debugLog.splice(0, debugLog.length - 20);
+  try {
+    await supabaseInsert("kirimi_debug_log", {
+      received_at: new Date().toISOString(),
+      headers: headers,
+      body: body
+    });
+  } catch (err) {
+    console.error("[kirimi-debug] Failed to save:", err);
   }
 
   return NextResponse.json({ ok: true, received: true });
