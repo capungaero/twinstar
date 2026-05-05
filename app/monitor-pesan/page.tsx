@@ -310,7 +310,6 @@ function MessageRow({ message, selectable, selected, onSelect }: { message: Moni
   );
 }
 
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "telegram" | "kirimi">("all");
   const [autoRefresh, setAutoRefresh] = useState(true);
