@@ -10,7 +10,11 @@ export type MonitorMessage = {
   source: "telegram" | "kirimi";
   timestamp: string;
   sender: string;
+  senderName?: string;
   senderPhone?: string;
+  groupId?: string;
+  isFromGroup?: boolean;
+  messageType?: string;
   text: string;
   kind: "message" | "ai_request";
   isAiRequest: boolean;
@@ -49,7 +53,11 @@ export async function GET(request: Request) {
           source: "kirimi" as const,
           timestamp: item.received_at,
           sender: item.from_phone,
+          senderName: item.sender_name || undefined,
           senderPhone: item.from_phone,
+          groupId: item.group_id || undefined,
+          isFromGroup: item.is_from_group || false,
+          messageType: item.message_type || "text",
           text: item.text,
           kind: item.kind,
           isAiRequest: item.kind === "ai_request"

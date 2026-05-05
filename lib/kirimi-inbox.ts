@@ -9,6 +9,10 @@ export type KirimiInboxItem = {
   to_phone: string;
   text: string;
   ai_prompt: string | null;
+  sender_name?: string;
+  group_id?: string;
+  is_from_group?: boolean;
+  message_type?: string;
   raw?: unknown;
 };
 
@@ -34,7 +38,16 @@ export function formatKirimiPhoneNumber(phone: string) {
   return `+62${digits.replace(/^0/, "")}`;
 }
 
-export async function appendKirimiInboxItem(payload: unknown, fromPhone: string, toPhone: string, text: string) {
+export async function appendKirimiInboxItem(
+  payload: unknown,
+  fromPhone: string,
+  toPhone: string,
+  text: string,
+  senderName = "",
+  groupId = "",
+  isFromGroup = false,
+  messageType = "text"
+) {
   const aiPrompt = parseAiPrompt(text);
   const item: KirimiInboxItem = {
     kind: aiPrompt ? "ai_request" : "message",
@@ -44,7 +57,10 @@ export async function appendKirimiInboxItem(payload: unknown, fromPhone: string,
     to_phone: toPhone,
     text,
     ai_prompt: aiPrompt,
-    raw: payload
+    sender_name: senderName,
+    group_id: groupId,
+    is_from_group: isFromGroup,
+    message_type: messageType
   };
 
   await supabaseInsert("wa_inbox", {
@@ -55,6 +71,10 @@ export async function appendKirimiInboxItem(payload: unknown, fromPhone: string,
     text: item.text,
     kind: item.kind,
     ai_prompt: item.ai_prompt,
+    sender_name: item.sender_name,
+    group_id: item.group_id,
+    is_from_group: item.is_from_group,
+    message_type: item.message_type,
     raw: payload
   });
 
@@ -71,6 +91,10 @@ export async function readKirimiInbox(limit = 50): Promise<KirimiInboxItem[]> {
     text: string;
     kind: string;
     ai_prompt: string | null;
+    sender_name: string;
+    group_id: string;
+    is_from_group: boolean;
+    message_type: string;
     raw: unknown;
   }>("wa_inbox", { limit: String(limit) });
 
@@ -82,7 +106,11 @@ export async function readKirimiInbox(limit = 50): Promise<KirimiInboxItem[]> {
     from_phone: row.from_phone,
     to_phone: row.to_phone,
     text: row.text,
-    ai_prompt: row.ai_prompt
+    ai_prompt: row.ai_prompt,
+    sender_name: row.sender_name,
+    group_id: row.group_id,
+    is_from_group: row.is_from_group,
+    message_type: row.message_type
   }));
 }
 

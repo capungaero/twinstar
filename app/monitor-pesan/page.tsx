@@ -177,6 +177,10 @@ function MessageRow({ message }: { message: MonitorMessage }) {
   const sourceLabel = message.source === "telegram" ? "Telegram" : "WhatsApp";
   const sourceIcon = message.source === "telegram" ? "📱" : "💬";
 
+  // Tampilkan nama jika ada, fallback ke nomor
+  const displayName = message.senderName || message.sender;
+  const isMedia = message.messageType && !["text", "chat", "extendedtext", ""].includes(message.messageType.toLowerCase());
+
   return (
     <div
       style={{
@@ -193,29 +197,26 @@ function MessageRow({ message }: { message: MonitorMessage }) {
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "6px", gap: "10px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <strong style={{ color: "#333" }}>{message.sender}</strong>
-            <span
-              style={{
-                fontSize: "11px",
-                padding: "2px 8px",
-                backgroundColor: sourceColor,
-                color: "white",
-                borderRadius: "3px"
-              }}
-            >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <strong style={{ color: "#333" }}>{displayName}</strong>
+            {message.senderName && message.senderPhone && (
+              <span style={{ fontSize: "12px", color: "#999" }}>{message.senderPhone}</span>
+            )}
+            <span style={{ fontSize: "11px", padding: "2px 8px", backgroundColor: sourceColor, color: "white", borderRadius: "3px" }}>
               {sourceLabel}
             </span>
+            {message.isFromGroup && (
+              <span style={{ fontSize: "11px", padding: "2px 8px", backgroundColor: "#6366f1", color: "white", borderRadius: "3px" }}>
+                Grup {message.groupId ? `· ${message.groupId}` : ""}
+              </span>
+            )}
+            {isMedia && (
+              <span style={{ fontSize: "11px", padding: "2px 8px", backgroundColor: "#64748b", color: "white", borderRadius: "3px" }}>
+                {message.messageType}
+              </span>
+            )}
             {message.isAiRequest && (
-              <span
-                style={{
-                  fontSize: "11px",
-                  padding: "2px 8px",
-                  backgroundColor: "#f59e0b",
-                  color: "white",
-                  borderRadius: "3px"
-                }}
-              >
+              <span style={{ fontSize: "11px", padding: "2px 8px", backgroundColor: "#f59e0b", color: "white", borderRadius: "3px" }}>
                 AI Request
               </span>
             )}

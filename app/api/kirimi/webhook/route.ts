@@ -86,61 +86,88 @@ function isOutgoingMessage(payload: unknown) {
   );
 }
 
-function extractIncomingText(payload: unknown) {
-  if (!isRecord(payload)) {
-    return "";
+// Format Kirimi: payload flat langsung di root
+// { from, name, event, msgId, groupId, message, isFromMe, isFromGroup, messageType, participant, ... }
+function extractKirimiText(payload: RecordLike): string {
+  const msgType = typeof payload.messageType === "string" ? payload.messageType : "";
+  // Jika messageType dikenal berisi teks
+  if (["text", "chat", "extendedtext", "extended_text", ""].includes(msgType.toLowerCase())) {
+    const text = pickFirstString(payload.message, payload.text, payload.body, payload.caption, payload.content);
+    if (text && text !== "[unknown]") return text;
   }
+  // Pesan media: tampilkan info tipe
+  if (msgType && msgType !== "unknown") {
+    const caption = pickFirstString(payload.caption, payload.message !== "[unknown]" ? payload.message : "");
+    const typeLabel: Record<string, string> = {
+      image: "[Gambar]", video: "[Video]", audio: "[Audio]", document: "[Dokumen]",
+      sticker: "[Stiker]", voice: "[Pesan Suara]", gif: "[GIF]", location: "[Lokasi]",
+      contact: "[Kontak]", poll: "[Polling]", reaction: "[Reaksi]"
+    };
+    const label = typeLabel[msgType.toLowerCase()] || `[${msgType}]`;
+    return caption ? `${label}: ${caption}` : label;
+  }
+  return "";
+}
 
+function extractIncomingText(payload: unknown) {
+  if (!isRecord(payload)) return "";
+  // Kirimi flat format
+  if (typeof payload.event === "string" || typeof payload.isFromGroup === "boolean") {
+    return extractKirimiText(payload);
+  }
+  // Fallback format lama (nested)
   const data = getNestedRecord(payload, "data") ?? payload;
   const message = getNestedRecord(data, "message") ?? data;
-
   return pickFirstString(
-    message.message,
-    message.text,
-    message.content,
-    message.body,
-    data.message,
-    data.text,
-    data.content,
-    data.body,
-    payload.message,
-    payload.text,
+    message.message, message.text, message.content, message.body,
+    data.message, data.text, data.content, data.body,
+    payload.message, payload.text,
     findFirstStringByKeys(payload, ["text", "body", "content", "caption", "conversation", "message"])
   );
 }
 
 function extractIncomingNumber(payload: unknown) {
-  if (!isRecord(payload)) {
-    return "";
+  if (!isRecord(payload)) return "";
+  // Kirimi flat format: gunakan participant untuk grup, from untuk pribadi
+  if (typeof payload.event === "string" || typeof payload.isFromGroup === "boolean") {
+    const isGroup = payload.isFromGroup === true;
+    if (isGroup && typeof payload.participant === "string" && payload.participant) {
+      return payload.participant as string;
+    }
+    const from = typeof payload.from === "string" ? payload.from.replace(/@.*$/, "") : "";
+    return from;
   }
-
+  // Fallback format lama
   const data = getNestedRecord(payload, "data") ?? payload;
   const message = getNestedRecord(data, "message") ?? data;
   const chat = getNestedRecord(message, "chat") ?? getNestedRecord(data, "chat") ?? null;
-
   return pickFirstString(
-    message.receiver,
-    message.from,
-    message.sender,
-    message.phone,
-    message.number,
-    chat?.receiver,
-    chat?.from,
-    chat?.sender,
-    chat?.phone,
-    chat?.number,
-    data.receiver,
-    data.from,
-    data.sender,
-    data.phone,
-    data.number,
-    payload.receiver,
-    payload.from,
-    payload.sender,
-    payload.phone,
-    payload.number,
+    message.receiver, message.from, message.sender, message.phone, message.number,
+    chat?.receiver, chat?.from, chat?.sender, chat?.phone, chat?.number,
+    data.receiver, data.from, data.sender, data.phone, data.number,
+    payload.receiver, payload.from, payload.sender, payload.phone, payload.number,
     findFirstStringByKeys(payload, ["from", "sender", "phone", "number", "remotejid", "remote_jid", "participant"])
   );
+}
+
+function extractSenderName(payload: unknown): string {
+  if (!isRecord(payload)) return "";
+  return typeof payload.name === "string" ? payload.name : "";
+}
+
+function extractGroupId(payload: unknown): string {
+  if (!isRecord(payload)) return "";
+  return typeof payload.groupId === "string" ? payload.groupId.replace(/@.*$/, "") : "";
+}
+
+function extractIsFromGroup(payload: unknown): boolean {
+  if (!isRecord(payload)) return false;
+  return payload.isFromGroup === true;
+}
+
+function extractMessageType(payload: unknown): string {
+  if (!isRecord(payload)) return "text";
+  return typeof payload.messageType === "string" ? payload.messageType : "text";
 }
 
 function stripAiPrefix(text: string) {
@@ -169,23 +196,27 @@ export async function POST(request: Request) {
 
   const incomingText = extractIncomingText(body);
   const incomingNumber = normalizeKirimiPhoneNumber(extractIncomingNumber(body));
+  const senderName = extractSenderName(body);
+  const groupId = extractGroupId(body);
+  const isFromGroup = extractIsFromGroup(body);
+  const messageType = extractMessageType(body);
   const targetNumber = normalizeKirimiPhoneNumber(process.env.KIRIMI_TARGET_NUMBER || process.env.KIRIMI_REPLY_TO_NUMBER || "085272447141");
 
-  console.log("[kirimi-webhook] extracted text:", incomingText, "| from:", incomingNumber, "| isOutgoing:", isOutgoingMessage(body));
+  console.log("[kirimi-webhook] text:", incomingText, "| from:", incomingNumber, "| name:", senderName, "| group:", isFromGroup, groupId, "| isOutgoing:", isOutgoingMessage(body));
 
-  if (!incomingText) {
-    return NextResponse.json({ ok: true, handled: false, reason: "No text message" });
-  }
-
-  if (isOutgoingMessage(body) || /^Pencarian AI:/i.test(incomingText.trim())) {
+  if (isOutgoingMessage(body) || /^Pencarian AI:/i.test((incomingText || "").trim())) {
     return NextResponse.json({ ok: true, handled: false, reason: "Outgoing or bot reply ignored" });
   }
 
-  // Simpan SEMUA pesan masuk ke inbox
+  // Simpan SEMUA pesan masuk ke inbox (termasuk media)
   try {
-    await appendKirimiInboxItem(body, incomingNumber, targetNumber, incomingText);
+    await appendKirimiInboxItem(body, incomingNumber, targetNumber, incomingText || `[${messageType}]`, senderName, groupId, isFromGroup, messageType);
   } catch (inboxError) {
     console.error("Failed to save Kirimi message to inbox:", inboxError);
+  }
+
+  if (!incomingText) {
+    return NextResponse.json({ ok: true, handled: false, reason: "No text content, saved as media message" });
   }
 
   // Auto-reply AI hanya aktif jika pesan diawali /ai: atau /ai <spasi>
